@@ -1,5 +1,6 @@
-# the build context if any file is root-owned 0600 — and it keeps secrets and state
-# away from the daemon.
+# Keeps the build context small and reproducible — a stray root-owned 0600 file
+# anywhere in the context would otherwise fail the build — and it keeps secrets
+# and state away from the daemon.
 node_modules
 dist
 coverage

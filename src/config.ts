@@ -92,6 +92,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
     process.exit(1);
   }
+  // A query or fragment silently corrupts every request URL built from this
+  // base: `…#x` + `/api/recipes` sends the token-bearing request to `/` of the
+  // host, with the intended path swallowed by the fragment.
+  if (parsed.search || parsed.hash) {
+    console.error(
+      'mealie-mcp: MEALIE_URL must not contain a query string or fragment'
+    );
+    process.exit(1);
+  }
   if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
     console.error(
       'mealie-mcp: WARNING: MEALIE_URL uses plain http to a non-local host — ' +

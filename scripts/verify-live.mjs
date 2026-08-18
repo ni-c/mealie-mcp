@@ -445,6 +445,9 @@ for (const url of [
   'http://127.0.0.1:9930/api/app/about',
   'http://192.168.0.7/',
   'http://169.254.169.254/latest/meta-data/',
+  'http://[::ffff:127.0.0.1]/api/app/about',
+  'http://[::ffff:169.254.169.254]/latest/meta-data/',
+  'http://[::ffff:192.168.0.7]/',
   'http://mealie.internal/',
   'not-a-url',
 ]) {

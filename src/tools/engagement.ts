@@ -45,7 +45,7 @@ export function registerEngagementWriteTools(
         // The rating route lives under the user, not under the recipe, and wants
         // the caller's own UUID in the path even though the token already
         // identifies them. Fetched once and cached for the process.
-        const userId = await currentUser.id();
+        const userId = assertPathSegment(await currentUser.id(), 'user id');
         const data = await api.post(
           `/api/users/${userId}/ratings/${assertPathSegment(slug, 'recipe')}`,
           {

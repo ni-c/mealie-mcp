@@ -151,6 +151,26 @@ describe('loadConfig', () => {
     expect(exit).toHaveBeenCalledWith(1);
   });
 
+  it('exits when the URL carries a query or fragment', () => {
+    // `https://host#x` + `/api/recipes` would send the token-bearing request
+    // to `/` of the host, the intended path swallowed by the fragment.
+    silence();
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exited');
+    }) as never);
+    for (const url of [
+      'https://mealie.example.com#fragment',
+      'https://mealie.example.com?a=b',
+    ]) {
+      const attempt = () =>
+        loadConfig({
+          MEALIE_URL: url,
+          MEALIE_API_TOKEN: 't',
+        } as NodeJS.ProcessEnv);
+      expect(attempt, url).toThrow('exited');
+    }
+  });
+
   it('exits when the URL carries credentials', () => {
     // They would end up in logs and error messages; the token belongs in
     // MEALIE_API_TOKEN, which is deleted from the environment after load.

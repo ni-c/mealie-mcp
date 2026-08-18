@@ -10,14 +10,18 @@ import {
   type Config,
 } from './config.js';
 
+/** Ample for anything that is a database lookup, which is most of the API. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 /**
- * 60 s rather than the usual 15 s. Three tools hand work to Mealie that is not a
- * database lookup: scraping a recipe URL runs a headless fetch plus parsing,
- * importing from an image calls out to an LLM provider, and adding a recipe to a
- * shopping list merges every ingredient. All three regularly need tens of
- * seconds on a small self-hosted instance.
+ * For the handful of calls that hand Mealie real work: scraping a recipe URL
+ * runs a headless fetch plus parsing, importing from an image calls out to an
+ * LLM provider, and adding a recipe to a shopping list merges every ingredient.
+ * All of these regularly need tens of seconds on a small self-hosted instance —
+ * but a hung upstream should not stall a plain `list_units` for a minute, so
+ * the long timeout is opted into per call rather than applied uniformly.
  */
-const REQUEST_TIMEOUT_MS = 60_000;
+export const LONG_TIMEOUT_MS = 60_000;
 
 /**
  * Hard cap on how much of a response body is read into memory.
@@ -123,7 +127,8 @@ export class MealieApi {
   async request(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    timeoutMs: number = REQUEST_TIMEOUT_MS
   ): Promise<unknown> {
     // The credentials are only required here, not at startup, so the server can
     // still be started and introspected without them.
@@ -147,7 +152,7 @@ export class MealieApi {
       // reverse proxy that redirects http -> https, and a mistyped MEALIE_URL
       // would leak the token that way.
       redirect: 'error',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     };
     if (body instanceof FormData) {
       init.body = body;
@@ -186,8 +191,8 @@ export class MealieApi {
     return this.request('GET', path);
   }
 
-  post(path: string, body?: unknown): Promise<unknown> {
-    return this.request('POST', path, body);
+  post(path: string, body?: unknown, timeoutMs?: number): Promise<unknown> {
+    return this.request('POST', path, body, timeoutMs);
   }
 
   put(path: string, body?: unknown): Promise<unknown> {

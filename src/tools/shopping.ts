@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { query, type MealieApi } from '../api.js';
+import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import {
   confirmationPrompt,
   setResourceKey,
@@ -329,9 +329,12 @@ export function registerShoppingWriteTools(
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {
         const { id } = await resolveRecipe(api, recipe);
+        // Merging every ingredient into the list takes Mealie tens of seconds
+        // on a large recipe, as does taking one back out.
         const data = await api.post(
           `/api/households/shopping/lists/${list_id}/recipe/${id}`,
-          { recipeIncrementQuantity: servings_multiplier ?? 1 }
+          { recipeIncrementQuantity: servings_multiplier ?? 1 },
+          LONG_TIMEOUT_MS
         );
         return untrustedResult(shoppingListSummary(data));
       })
@@ -362,7 +365,8 @@ export function registerShoppingWriteTools(
         const { id } = await resolveRecipe(api, recipe);
         const data = await api.post(
           `/api/households/shopping/lists/${list_id}/recipe/${id}/delete`,
-          { recipeDecrementQuantity: servings_multiplier ?? 1 }
+          { recipeDecrementQuantity: servings_multiplier ?? 1 },
+          LONG_TIMEOUT_MS
         );
         return untrustedResult(shoppingListSummary(data));
       })

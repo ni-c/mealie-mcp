@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import type { MealieApi } from '../api.js';
+import { query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
 import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
 import { resolveRecipe } from '../lookup.js';
@@ -37,9 +37,7 @@ export function registerSharingReadTools(
             ? undefined
             : (await resolveRecipe(api, recipe)).id;
         const data = await api.get(
-          recipeId === undefined
-            ? '/api/shared/recipes'
-            : `/api/shared/recipes?recipe_id=${recipeId}`
+          `/api/shared/recipes${query({ recipe_id: recipeId })}`
         );
         const tokens = listFrom(data).map((token) => {
           const shaped = shareToken(token);

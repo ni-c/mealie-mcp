@@ -104,10 +104,13 @@ function isNonPublicHost(hostname: string): boolean {
     return true;
   }
 
-  // IPv6 loopback, unspecified, unique-local (fc00::/7) and link-local (fe80::/10).
-  if (host === '::1' || host === '::') return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;
-  if (/^fe[89ab][0-9a-f]:/.test(host)) return true;
+  // Any IPv6 literal is refused outright. Classifying them piecemeal is a
+  // losing game: beyond loopback, unique-local and link-local there are the
+  // IPv4-mapped forms (`::ffff:127.0.0.1` normalises to `::ffff:7f00:1`, which
+  // a dotted-quad check never sees), NAT64 prefixes and other embeddings that
+  // smuggle a private IPv4 address past the guard. No recipe is published on a
+  // bracketed address literal, so rejecting the whole class costs nothing.
+  if (host.includes(':')) return true;
 
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
   if (v4) {

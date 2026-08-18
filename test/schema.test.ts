@@ -72,6 +72,21 @@ describe('httpUrl', () => {
     }
   });
 
+  it('rejects every IPv6 literal, including IPv4-mapped forms', () => {
+    // `http://[::ffff:127.0.0.1]/` normalises to hostname `[::ffff:7f00:1]`,
+    // which no dotted-quad check ever sees — so the guard refuses bracketed
+    // literals as a class instead of classifying them piecemeal.
+    for (const url of [
+      'http://[::ffff:127.0.0.1]/a',
+      'http://[::ffff:169.254.169.254]/latest/meta-data/',
+      'http://[::ffff:192.168.0.7]/a',
+      'http://[64:ff9b::7f00:1]/a',
+      'http://[2001:db8::1]/a',
+    ]) {
+      expect(httpUrl.safeParse(url).success, url).toBe(false);
+    }
+  });
+
   it('rejects internal-only name suffixes', () => {
     for (const url of [
       'http://mealie.lan/a',

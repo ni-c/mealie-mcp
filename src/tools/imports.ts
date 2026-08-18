@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { query, type MealieApi } from '../api.js';
+import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
 import { run, ToolInputError, untrustedResult } from '../result.js';
 import { httpUrl } from '../schema.js';
@@ -47,7 +47,11 @@ export function registerImportTools(
     },
     async ({ url }) =>
       run(async () => {
-        const data = await api.post('/api/recipes/test-scrape-url', { url });
+        const data = await api.post(
+          '/api/recipes/test-scrape-url',
+          { url },
+          LONG_TIMEOUT_MS
+        );
         return untrustedResult(data);
       })
   );
@@ -77,11 +81,15 @@ export function registerImportTools(
     },
     async ({ url, include_tags, include_categories }) =>
       run(async () => {
-        const data = await api.post('/api/recipes/create/url', {
-          url,
-          includeTags: include_tags ?? false,
-          includeCategories: include_categories ?? false,
-        });
+        const data = await api.post(
+          '/api/recipes/create/url',
+          {
+            url,
+            includeTags: include_tags ?? false,
+            includeCategories: include_categories ?? false,
+          },
+          LONG_TIMEOUT_MS
+        );
         return untrustedResult(await expand(api, config, data));
       })
   );
@@ -105,9 +113,11 @@ export function registerImportTools(
     },
     async ({ data }) =>
       run(async () => {
-        const created = await api.post('/api/recipes/create/html-or-json', {
-          data,
-        });
+        const created = await api.post(
+          '/api/recipes/create/html-or-json',
+          { data },
+          LONG_TIMEOUT_MS
+        );
         return untrustedResult(await expand(api, config, created));
       })
   );
@@ -163,7 +173,8 @@ export function registerImportTools(
           `/api/recipes/create/image${query({
             translateLanguage: translate_language,
           })}`,
-          form
+          form,
+          LONG_TIMEOUT_MS
         );
         return untrustedResult(await expand(api, config, created));
       })
@@ -193,7 +204,15 @@ async function expand(
   config: Config,
   created: unknown
 ): Promise<Record<string, unknown>> {
-  if (typeof created === 'string' && /^[A-Za-z0-9._-]+$/.test(created)) {
+  if (
+    typeof created === 'string' &&
+    /^[A-Za-z0-9._-]+$/.test(created) &&
+    // Same rule as assertPathSegment: the character class alone admits the two
+    // dot-only segments, and an upstream answering ".." would turn the request
+    // into `/api/recipes/..`.
+    created !== '.' &&
+    created !== '..'
+  ) {
     return recipeDetail(await api.get(`/api/recipes/${created}`), config.url);
   }
   return recipeDetail(created, config.url);

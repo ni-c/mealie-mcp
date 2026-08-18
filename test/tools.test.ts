@@ -199,6 +199,50 @@ describe('read tools', () => {
     expect(JSON.parse(text)).toMatchObject({ version: 'v3.22.0' });
   });
 
+  it('strips unknown and dangerous fields before anything reaches the API', async () => {
+    // The zod schemas are plain objects, which strip unknown keys, and every
+    // handler destructures named parameters instead of spreading its args —
+    // this test pins both. JSON.parse is used so that "__proto__" arrives as an
+    // own property, exactly as it would over the wire.
+    const spy = mockFetch();
+    const args = JSON.parse(
+      '{"name":"Weekend","isPublic":true,"groupId":"g","__proto__":{"polluted":1}}'
+    ) as Record<string, unknown>;
+    const { isError } = await callText(
+      await connect(),
+      'create_shopping_list',
+      args
+    );
+    expect(isError).toBe(false);
+    expect(callsOf(spy)[0]!.body).toEqual({ name: 'Weekend' });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('answers get_about with the reachable half when the other fails', async () => {
+    // The tool exists to diagnose a 403 — a failing /api/users/self must not
+    // take the version information down with it.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('/api/users/self')) {
+        return new Response('{"detail":"forbidden"}', {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ version: 'v3.22.0' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const { text, isError } = await callText(await connect(), 'get_about');
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text) as {
+      version: string;
+      token: { error?: string };
+    };
+    expect(parsed.version).toBe('v3.22.0');
+    expect(parsed.token.error).toContain('403');
+  });
+
   it('repeats multi-valued filters as separate query keys', async () => {
     const spy = mockFetch();
     await callText(await connect(), 'search_recipes', {

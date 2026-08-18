@@ -57,6 +57,24 @@ describe('budgetedJson', () => {
     expect(parsed.recipes).toEqual([]);
   });
 
+  it('shrinks a bare top-level array into an envelope', () => {
+    // parse_ingredients and the raw passthrough shapes return Mealie's list
+    // unwrapped; item-dropping must still apply instead of the string fallback.
+    const items = Array.from({ length: 64 }, (_, i) => ({
+      i,
+      pad: 'x'.repeat(8000),
+    }));
+    const text = budgetedJson(items);
+    const parsed = JSON.parse(text) as {
+      truncated: { returned_items: number; omitted_items: number };
+      items: unknown[];
+    };
+    expect(text.length).toBeLessThanOrEqual(MAX_RESULT_BYTES);
+    expect(parsed.items.length).toBeGreaterThan(0);
+    expect(parsed.items.length).toBe(parsed.truncated.returned_items);
+    expect(parsed.truncated.omitted_items).toBe(64 - parsed.items.length);
+  });
+
   it('emits a valid envelope when there is no array to shrink', () => {
     const parsed = JSON.parse(
       budgetedJson({ description: 'x'.repeat(MAX_RESULT_BYTES + 10) })

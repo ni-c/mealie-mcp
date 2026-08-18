@@ -49,6 +49,30 @@ export function budgetedJson(data: unknown, followUp?: string): string {
     followUp ??
     'Narrow the query, request fewer items with per_page, or page through the result.';
 
+  // A bare top-level array — `parse_ingredients` and the raw passthrough shapes
+  // return one — is shrunk the same way, wrapped into an envelope so the
+  // truncation notice has somewhere to live.
+  if (Array.isArray(data)) {
+    let keep = data.length;
+    while (keep > 0) {
+      keep = Math.floor(keep / 2);
+      const text = JSON.stringify(
+        {
+          truncated: {
+            reason,
+            returned_items: keep,
+            omitted_items: data.length - keep,
+            follow_up: hint,
+          },
+          items: data.slice(0, keep),
+        },
+        null,
+        2
+      );
+      if (text.length <= MAX_RESULT_BYTES) return text;
+    }
+  }
+
   if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
     const record = data as Record<string, unknown>;
     const key = largestArrayKey(record);
