@@ -27,6 +27,19 @@ updates:
         update-types:
           - version-update:semver-major
 
+  # The docs site has its own manifest so VitePress never enters the root
+  # install. Its updates are excluded from auto-merge — docs.yml is path
+  # filtered and cannot be a required check.
+  - package-ecosystem: npm
+    directory: /docs
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
   # Exists so the digest-pinned base image gets refreshed at all. Node majors are
   # excluded because Dependabot offers whatever tag is newest, while the runtime
   # image has to sit on an ACTIVE LTS line — and roughly half of all Node majors

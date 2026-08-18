@@ -21,7 +21,7 @@
   "bugs": {
     "url": "https://github.com/ni-c/mealie-mcp/issues"
   },
-  "homepage": "https://github.com/ni-c/mealie-mcp#readme",
+  "homepage": "https://mealie-mcp.ni-c.de",
   "type": "module",
   "bin": {
     "mealie-mcp": "dist/index.js"
@@ -34,12 +34,15 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepublishOnly": "npm run lint && npm run build && npm test",
     "build": "tsc",
     "watch": "tsc --watch",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "assets": "node scripts/gen-assets.mjs",
+    "assets:check": "node scripts/gen-assets.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -48,6 +51,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "4.1.11",
     "eslint": "^10.8.1",

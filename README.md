@@ -1,5 +1,13 @@
 # mealie-mcp
 
+[![CI](https://img.shields.io/github/actions/workflow/status/ni-c/mealie-mcp/ci.yml?branch=main&label=CI)](https://github.com/ni-c/mealie-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
+[![downloads](https://img.shields.io/npm/dm/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
+[![container](https://img.shields.io/badge/ghcr.io-mealie--mcp-blue?logo=docker&logoColor=white)](https://github.com/ni-c/mealie-mcp/pkgs/container/mealie-mcp)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](https://nodejs.org)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-mealie--mcp.ni--c.de-4f46e5)](https://mealie-mcp.ni-c.de)
+
 A [Model Context Protocol](https://modelcontextprotocol.io) server for
 [Mealie](https://mealie.io), the self-hosted recipe manager and meal planner.
 
@@ -7,6 +15,20 @@ It gives a model a curated view of a Mealie instance: search and read recipes wi
 their ingredients and steps, import new ones from a website, keep tags and
 categories tidy, plan meals, build shopping lists from those plans, and record what
 was actually cooked.
+
+📖 **[Full documentation at mealie-mcp.ni-c.de](https://mealie-mcp.ni-c.de)**
+
+![Demo](https://mealie-mcp.ni-c.de/demo.gif)
+
+<!-- <picture> is resolved against the colour scheme of the page showing it, so GitHub
+     picks the variant that matches its own theme toggle. npm strips <picture> and
+     <source> when it sanitises the README and keeps the <img>, which is why that
+     fallback brings its own dark card instead of relying on a media query. -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://mealie-mcp.ni-c.de/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://mealie-mcp.ni-c.de/architecture-light.svg">
+  <img src="https://mealie-mcp.ni-c.de/architecture.svg" alt="An MCP client speaks stdio to mealie-mcp, which calls the Mealie REST API over HTTPS; Mealie fetches recipe websites server-side, which is why the URL guard refuses private hosts" width="800">
+</picture>
 
 Mealie's REST API has 259 operations across 175 paths. This server exposes **52
 tools**, chosen so that the common tasks are one call and the dangerous surface is
@@ -61,6 +83,18 @@ claude mcp add mealie \
   -- npx -y @ni-c/mealie-mcp
 ```
 
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.mealie]
+command = "npx"
+args = ["-y", "@ni-c/mealie-mcp"]
+
+[mcp_servers.mealie.env]
+MEALIE_URL = "https://mealie.example.com"
+MEALIE_API_TOKEN = "…"
+```
+
 Or as a container:
 
 ```sh
@@ -68,6 +102,12 @@ docker run --rm -i \
   -e MEALIE_URL=https://mealie.example.com \
   -e MEALIE_API_TOKEN=… \
   ghcr.io/ni-c/mealie-mcp
+```
+
+To poke at the tools interactively:
+
+```sh
+npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
 ```
 
 ## Tools
@@ -146,6 +186,32 @@ npm install && npm test && npm run build
 
 `scripts/verify-live.mjs` exercises all 52 tools against a **throwaway** Mealie
 instance; the recipe for setting one up is in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The architecture diagram and the social card are rendered from
+`docs/assets/architecture.source.svg` and `docs/assets/og.json` by
+`npm run assets`; CI fails if a rendered copy was edited by hand.
+
+## Releasing
+
+Everything is driven by a tag; there is no manual publish step.
+
+1. Move the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) to the new version
+   and date it. The release workflow extracts that section with `awk`, so the
+   `## [x.y.z]` heading shape matters.
+2. Bump `version` in `package.json`.
+3. `npm run lint && npm run build && npm run test:coverage`.
+4. Commit, then a **signed annotated** tag:
+
+   ```sh
+   git tag -s v0.1.1 -m "v0.1.1"
+   git push origin main v0.1.1
+   ```
+
+`release.yml` then verifies the tag matches `package.json`, publishes to npm over
+**Trusted Publishing** (OIDC — no npm token exists to leak) with provenance, syncs the
+version into both `server.json` package entries, publishes to the MCP registry, and
+cuts the GitHub release from the changelog section. `ci.yml` pushes the multi-arch
+container image to GHCR in parallel.
 
 ## License
 

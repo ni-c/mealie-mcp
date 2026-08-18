@@ -1,0 +1,95 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ni-c/mealie-mcp",
+  "title": "Mealie MCP Server",
+  "description": "MCP server for Mealie, the self-hosted recipe manager and meal planner",
+  "websiteUrl": "https://mealie-mcp.ni-c.de",
+  "repository": {
+    "url": "https://github.com/ni-c/mealie-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@ni-c/mealie-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MEALIE_URL",
+          "description": "Base URL of the Mealie instance, e.g. https://mealie.example.com",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_API_TOKEN",
+          "description": "API token created in Mealie under Settings → API Tokens",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_READ_ONLY",
+          "description": "Exactly 'true' registers only the 17 read tools",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_ACCEPT_LANGUAGE",
+          "description": "Accept-Language header, e.g. de-DE; localises unit and label names",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_INSECURE_TLS",
+          "description": "Exactly 'true' accepts a self-signed certificate, scoped to this connection",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/ni-c/mealie-mcp:0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MEALIE_URL",
+          "description": "Base URL of the Mealie instance, e.g. https://mealie.example.com",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_API_TOKEN",
+          "description": "API token created in Mealie under Settings → API Tokens",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_READ_ONLY",
+          "description": "Exactly 'true' registers only the 17 read tools",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_ACCEPT_LANGUAGE",
+          "description": "Accept-Language header, e.g. de-DE; localises unit and label names",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "MEALIE_INSECURE_TLS",
+          "description": "Exactly 'true' accepts a self-signed certificate, scoped to this connection",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
