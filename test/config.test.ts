@@ -131,10 +131,12 @@ describe('loadConfig', () => {
       } as NodeJS.ProcessEnv)
     ).toThrow('exited');
     expect(exit).toHaveBeenCalledWith(1);
-    // A token pasted into MEALIE_URL by mistake must not be logged.
-    expect(
-      log.mock.calls.some(([m]) => String(m).includes('mealie.example.com'))
-    ).toBe(false);
+    // A token pasted into MEALIE_URL by mistake must not be logged. Asserting
+    // the exact and only log line is stronger than a substring check: nothing
+    // else was written, so the value cannot have been echoed anywhere.
+    expect(log.mock.calls.map(([m]) => String(m))).toEqual([
+      'mealie-mcp: MEALIE_URL is not a valid absolute URL',
+    ]);
   });
 
   it('exits on a non-http scheme', () => {
