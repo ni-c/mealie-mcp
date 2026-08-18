@@ -1,0 +1,59 @@
+{
+  "name": "@ni-c/mealie-mcp",
+  "version": "0.1.0",
+  "mcpName": "io.github.ni-c/mealie-mcp",
+  "description": "MCP server for Mealie, the self-hosted recipe manager and meal planner",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mealie",
+    "recipes",
+    "meal-plan",
+    "shopping-list",
+    "selfhosted"
+  ],
+  "license": "MIT",
+  "author": "Willi Thiel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ni-c/mealie-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ni-c/mealie-mcp/issues"
+  },
+  "homepage": "https://github.com/ni-c/mealie-mcp#readme",
+  "type": "module",
+  "bin": {
+    "mealie-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "undici": "^8.10.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "^10.8.1",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.11"
+  }
+}
