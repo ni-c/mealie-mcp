@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.1.0] - 2026-08-18
 
 ### Added
 
@@ -30,5 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - URL validation that restricts the import tools to public `http`/`https`
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
+
+[0.1.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.0
 
 <!-- #endregion changelog -->
