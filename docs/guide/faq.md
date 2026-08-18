@@ -1,0 +1,77 @@
+# FAQ & troubleshooting
+
+## Every call fails with "missing required environment variable(s)"
+
+The server started without `MEALIE_URL` and/or `MEALIE_API_TOKEN`. That is
+deliberate — the server completes the MCP handshake and lists its tools without
+credentials so it can be introspected — but no call can succeed. Set both
+variables in the client config; see [Connecting clients](/guide/clients).
+
+## I set `MEALIE_READ_ONLY=1` and the write tools are still there
+
+The two boolean variables compare against the literal string `true`, so `1`,
+`yes` and `True` all leave them **off**. A typo fails off, never on. The startup
+line on stderr reports the mode actually in effect — check it after changing the
+config.
+
+## A write tool fails with 403
+
+The token acts as the user who created it, with that user's permission flags.
+Call `get_about`: it reports the identity behind the token and the three flags
+that gate the write tools in practice (`canOrganize`, `canManage`, `canInvite`).
+Organizer, food and unit management needs `canOrganize`.
+
+## `suggest_recipes` returns nothing
+
+That tool ranks recipes by the foods and tools marked "on hand" in Mealie, so it
+only produces anything on an instance that maintains structured foods, units and
+an on-hand pantry. On a collection of plain-text ingredients it returns nothing —
+use `search_recipes` there. Likewise, `list_foods` and `list_units` being empty
+means the instance never seeded them, not a failure.
+
+## `import_recipe_from_url` refuses my URL
+
+URLs handed to the import tools must be public `http`/`https` addresses.
+Loopback, private-range and link-local addresses and `.lan`/`.internal`/`.local`
+hosts are refused, because Mealie fetches the URL from inside its own network —
+see [Security](/guide/security#untrusted-content). If the page needs a login, or
+Mealie cannot parse it, fetch the HTML yourself and use
+`import_recipe_from_html_or_json`.
+
+## `import_recipe_from_image` fails
+
+That tool has Mealie run the photo through its configured AI provider. Without
+one the call fails — and the setting itself is only visible to a group manager
+or admin in Mealie's UI.
+
+## An import came out empty or garbled
+
+Run `preview_recipe_url` first: it fetches the page and reports what Mealie
+would extract, without saving anything. If the preview is already empty, the
+page's markup is the problem, not the import.
+
+## A delete tool answered with a token instead of deleting
+
+That is the [confirmation flow](/guide/security#confirmation-tokens): the first
+call describes what is about to happen and returns a single-use token, the
+second call — same arguments plus `confirm_token` — performs it. Tokens expire
+after a few minutes and are bound to the specific target.
+
+## Why is there no bulk export / backup / user management tool?
+
+By design. The point of the server is a curated surface; the
+[list of deliberately unexposed routes](/guide/security#not-exposed-on-purpose)
+explains what is missing and why.
+
+## Self-signed certificate errors
+
+Set `MEALIE_INSECURE_TLS=true` (exactly `true`). It disables certificate
+verification for the Mealie connection only, not for the whole process. Prefer a
+real certificate where you can.
+
+## Where do I report a bug or ask a question?
+
+- Questions and ideas → [Discussions](https://github.com/ni-c/mealie-mcp/discussions)
+- Reproducible problems → [Issues](https://github.com/ni-c/mealie-mcp/issues)
+- Vulnerabilities → [private reporting](https://github.com/ni-c/mealie-mcp/security/advisories/new),
+  never a public issue
