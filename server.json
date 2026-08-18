@@ -8,12 +8,12 @@
     "url": "https://github.com/ni-c/mealie-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@ni-c/mealie-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       },
@@ -53,7 +53,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/ni-c/mealie-mcp:0.1.0",
+      "identifier": "ghcr.io/ni-c/mealie-mcp:0.1.1",
       "transport": {
         "type": "stdio"
       },

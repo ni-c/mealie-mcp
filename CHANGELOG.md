@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [0.1.1] - 2026-08-18
+
+### Fixed
+
+- First release published through the automated pipeline, with npm provenance
+  and the MCP registry entry. 0.1.0 had been published manually while setting
+  up Trusted Publishing and therefore carries no provenance attestation.
+
 ## [0.1.0] - 2026-08-18
 
 ### Added
@@ -31,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
 
+[0.1.1]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.0
 
 <!-- #endregion changelog -->
