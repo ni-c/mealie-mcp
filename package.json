@@ -22,6 +22,7 @@
     "url": "https://github.com/ni-c/mealie-mcp/issues"
   },
   "homepage": "https://mealie-mcp.ni-c.de",
+  "funding": "https://github.com/sponsors/ni-c",
   "type": "module",
   "bin": {
     "mealie-mcp": "dist/index.js"
