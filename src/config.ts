@@ -1,3 +1,5 @@
+import { internalHostKind } from './hosts.js';
+
 export interface Config {
   /**
    * Base URL of the Mealie instance, e.g. `https://mealie.example.com`.
@@ -118,13 +120,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  // URL.hostname keeps the brackets around an IPv6 literal, so a bare '::1'
-  // comparison never matches and the http warning fires on a loopback URL.
-  const host = hostname.replace(/^\[|\]$/g, '');
-  return (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.startsWith('127.') ||
-    host === '::1'
-  );
+  // The same classifier the SSRF guard uses, so a loopback URL written as
+  // http://[::1]:9000 or http://[::ffff:127.0.0.1]:9000 is recognised here too
+  // and the plain-http warning does not fire on it.
+  return internalHostKind(hostname) === 'loopback';
 }

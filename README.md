@@ -28,7 +28,7 @@ was actually cooked.
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://mealie-mcp.ni-c.de/architecture-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="https://mealie-mcp.ni-c.de/architecture-light.svg">
-  <img src="https://mealie-mcp.ni-c.de/architecture.svg" alt="An MCP client speaks stdio to mealie-mcp, which calls the Mealie REST API over HTTPS; Mealie fetches recipe websites server-side, which is why the URL guard refuses private hosts" width="800">
+  <img src="https://mealie-mcp.ni-c.de/architecture.svg" alt="An MCP client speaks stdio to mealie-mcp, which calls the Mealie REST API over HTTPS; Mealie fetches recipe websites server-side, which is why the URL guard refuses its own loopback and link-local range" width="800">
 </picture>
 
 Mealie's REST API has 259 operations across 175 paths. This server exposes **52
@@ -169,8 +169,14 @@ tags. `update_recipe` uses `PATCH`.
   to treat it as data. This matters after the import too: the text stays in the
   database and comes back through `get_recipe`.
 - **The import tools make Mealie fetch, not this server.** URLs are restricted to
-  public `http`/`https` addresses; loopback, private-range, link-local and
-  `.lan`/`.internal`/`.local` hosts are refused.
+  `http`/`https`, and loopback and link-local hosts are refused — including the
+  cloud metadata endpoints and the hostnames that resolve to them. Addresses are
+  compared numerically, so an IPv4-mapped literal such as
+  `[::ffff:169.254.169.254]` is caught too, and a hostname is resolved as well —
+  best effort, since a name that does not resolve here is passed on. Private LAN
+  addresses are passed on as of 0.1.2, but Mealie refuses them itself, so such an
+  import fails there rather than here. See SECURITY.md for what the check does not
+  cover, including `import_recipe_from_html_or_json`.
 - **Confirmation prompts quote no upstream text** — ids, counts and flags only.
 - **Responses are bounded**: oversized results drop whole items rather than cutting
   the JSON mid-string, and a response body is never read past 8 MB.

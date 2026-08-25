@@ -31,10 +31,14 @@ means the instance never seeded them, not a failure.
 
 ## `import_recipe_from_url` refuses my URL
 
-URLs handed to the import tools must be public `http`/`https` addresses.
-Loopback, private-range and link-local addresses and `.lan`/`.internal`/`.local`
-hosts are refused, because Mealie fetches the URL from inside its own network —
-see [Security](/guide/security#untrusted-content). If the page needs a login, or
+URLs handed to the import tools must be `http`/`https`, and must not address
+Mealie's own machine: loopback and link-local addresses are refused, because
+Mealie fetches the URL from inside its own network and hands back what it read —
+see [Security](/guide/security#untrusted-content).
+
+A private LAN address is no longer refused *here* as of 0.1.2, but that will not
+make it work: Mealie refuses private addresses in its own HTTP transport, so the
+import fails on its side instead. If the page needs a login, or
 Mealie cannot parse it, fetch the HTML yourself and use
 `import_recipe_from_html_or_json`.
 

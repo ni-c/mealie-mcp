@@ -1,6 +1,6 @@
 {
   "name": "@ni-c/mealie-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mcpName": "io.github.ni-c/mealie-mcp",
   "description": "MCP server for Mealie, the self-hosted recipe manager and meal planner",
   "keywords": [

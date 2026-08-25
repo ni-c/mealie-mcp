@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import { firstInternalAddress } from './hosts.js';
+import { ToolInputError } from './result.js';
+
 /** Upper bound for every paginated tool, so one call cannot flood the context. */
 export const MAX_PER_PAGE = 100;
 
@@ -88,65 +91,20 @@ export const dateParam = z
     );
   }, 'must be a valid calendar date');
 
-/** Hosts that no recipe legitimately lives on. */
-function isNonPublicHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-
-  if (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local') ||
-    host.endsWith('.lan') ||
-    host.endsWith('.internal') ||
-    host.endsWith('.home') ||
-    host.endsWith('.home.arpa')
-  ) {
-    return true;
-  }
-
-  // Any IPv6 literal is refused outright. Classifying them piecemeal is a
-  // losing game: beyond loopback, unique-local and link-local there are the
-  // IPv4-mapped forms (`::ffff:127.0.0.1` normalises to `::ffff:7f00:1`, which
-  // a dotted-quad check never sees), NAT64 prefixes and other embeddings that
-  // smuggle a private IPv4 address past the guard. No recipe is published on a
-  // bracketed address literal, so rejecting the whole class costs nothing.
-  if (host.includes(':')) return true;
-
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])];
-    if (a === 10 || a === 127 || a === 0) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata
-    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
-    if (a >= 224) return true; // multicast and reserved
-  }
-
-  return false;
-}
-
 /**
  * A URL that Mealie will be asked to fetch server-side.
- *
- * Two separate problems, both closed here at the input:
  *
  * Zod's own `.url()` only checks that `new URL()` parses the value, so it
  * accepts `javascript:`, `file:`, `data:` and `ftp:` just as happily as
  * `https:`. Every URL validated by this schema is handed to Mealie, which
  * fetches it with its own scraper (`import_recipe_from_url`,
- * `preview_recipe_url`, `scrape_recipe_image`) — so an unrestricted scheme is a
- * file-disclosure primitive assembled out of valid tool calls.
+ * `preview_recipe_url`) — so an unrestricted scheme is a file-disclosure
+ * primitive assembled out of valid tool calls.
  *
- * And because Mealie does the fetching, the request originates *inside* the
- * network the instance runs on. A model that picked up an injected instruction
- * out of a scraped recipe could otherwise use this server to probe the home LAN
- * or a cloud metadata endpoint. Recipes do not live on private addresses, so
- * refusing them costs nothing.
- *
- * This is not a complete SSRF defence — it cannot be, since the name is
- * resolved by Mealie and a public name can point at a private address. It
- * removes the trivial paths; the real boundary is Mealie's own network egress.
+ * The *host* is checked separately, by `assertFetchableUrl` in the tool
+ * handlers: that check resolves names, which a Zod refinement cannot do because
+ * it is synchronous. This schema is the early, cheap half — it gives the model
+ * a useful error before any work happens — and it is not the boundary.
  */
 export const httpUrl = z
   .string()
@@ -169,14 +127,55 @@ export const httpUrl = z
         code: 'custom',
         message: `must use http:// or https:// (got ${parsed.protocol})`,
       });
-      return;
-    }
-    if (isNonPublicHost(parsed.hostname)) {
-      ctx.addIssue({
-        code: 'custom',
-        message:
-          'refusing a loopback, private-range or link-local host — Mealie would ' +
-          'fetch this from inside its own network',
-      });
     }
   });
+
+/**
+ * Validates a URL Mealie will be asked to fetch, and returns the form that
+ * should be sent.
+ *
+ * `preview_recipe_url` and `import_recipe_from_url` both hand the URL to
+ * *Mealie*, which fetches it with its own scraper and returns what it extracted
+ * — so the request originates inside Mealie's network and its response comes
+ * back to the caller. That is reachable from an instruction injected into a
+ * recipe page the model was asked to read.
+ *
+ * The returned string is the parsed URL, not the input. Handing on the original
+ * would mean checking one thing and fetching another: the host of
+ * `http://ok.example.com\@127.0.0.1/` is `ok.example.com` to a URL parser and
+ * `127.0.0.1` to a fetcher that splits at the `@`.
+ *
+ * This lives here rather than next to the classifier so that `hosts.ts` stays a
+ * leaf module: `config.ts` needs the classifier, and everything that reports a
+ * tool error needs `result.ts`, which reaches `config.ts` in turn.
+ */
+export async function assertFetchableUrl(value: string): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new ToolInputError(`not a valid URL: ${value.slice(0, 200)}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new ToolInputError(
+      `refusing ${parsed.protocol} — only http:// and https:// recipes can be ` +
+        'fetched. Mealie opens the URL with its own scraper, so a file:// or ' +
+        'similar scheme would have it read from its own disk instead of a page.'
+    );
+  }
+
+  const internal = await firstInternalAddress(parsed.hostname);
+  if (internal !== null) {
+    const where =
+      internal.address === parsed.hostname.toLowerCase()
+        ? internal.address
+        : `${parsed.hostname} (${internal.address})`;
+    throw new ToolInputError(
+      `refusing to point Mealie at ${where}: that is a ${internal.kind} address. ` +
+        'Mealie fetches the URL itself and hands back what it read, so loopback ' +
+        'and link-local addresses — the server itself and its cloud metadata ' +
+        'service — are not recipe sources. Use a routable URL.'
+    );
+  }
+  return parsed.toString();
+}

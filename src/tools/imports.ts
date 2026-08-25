@@ -5,7 +5,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
 import { run, ToolInputError, untrustedResult } from '../result.js';
-import { httpUrl } from '../schema.js';
+import { assertFetchableUrl, httpUrl } from '../schema.js';
 import { recipeDetail } from '../shape.js';
 
 /**
@@ -47,9 +47,11 @@ export function registerImportTools(
     },
     async ({ url }) =>
       run(async () => {
+        // The parsed URL, not the argument: the address that was checked has
+        // to be the address Mealie fetches.
         const data = await api.post(
           '/api/recipes/test-scrape-url',
-          { url },
+          { url: await assertFetchableUrl(url) },
           LONG_TIMEOUT_MS
         );
         return untrustedResult(data);
@@ -84,7 +86,7 @@ export function registerImportTools(
         const data = await api.post(
           '/api/recipes/create/url',
           {
-            url,
+            url: await assertFetchableUrl(url),
             includeTags: include_tags ?? false,
             includeCategories: include_categories ?? false,
           },
@@ -100,8 +102,12 @@ export function registerImportTools(
       title: 'Import recipe from HTML or JSON',
       description:
         'Creates a recipe from HTML or schema.org recipe JSON supplied directly, ' +
-        'without Mealie fetching anything. Useful for a page that needs a login, ' +
-        'or one that import_recipe_from_url could not parse.',
+        'so Mealie does not fetch the page. Useful for a page that needs a login, ' +
+        'or one that import_recipe_from_url could not parse.\n\n' +
+        'It does not fetch the *page*, but it is not fetch-free: Mealie reads the ' +
+        'image address out of the document and retrieves that, which this server ' +
+        'cannot inspect. Do not paste a document from a source you would not let ' +
+        'Mealie make a request for.',
       inputSchema: {
         data: z
           .string()

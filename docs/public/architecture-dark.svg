@@ -6,7 +6,7 @@
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 268" width="720" height="268" role="img" aria-labelledby="arch-title arch-desc">
   <title id="arch-title">mealie-mcp architecture</title>
-  <desc id="arch-desc">An MCP client talks to mealie-mcp over stdio; mealie-mcp calls the Mealie REST API over HTTPS. Mealie itself fetches recipe websites server-side, which is why the URL guard refuses private hosts.</desc>
+  <desc id="arch-desc">An MCP client talks to mealie-mcp over stdio; mealie-mcp calls the Mealie REST API over HTTPS. Mealie itself fetches recipe websites server-side, which is why the URL guard refuses its own loopback and link-local range.</desc>
 
   <style>
     .node { stroke-width: 1.25; }
@@ -61,5 +61,5 @@
 
   <path class="edge edge-dashed" d="M625,150 L625,196" marker-end="url(#arch-arrow)" />
   <text class="label-muted" x="610" y="216" text-anchor="middle">scrapes recipe sites server-side —</text>
-  <text class="label-muted" x="610" y="232" text-anchor="middle">URL guard refuses private hosts</text>
+  <text class="label-muted" x="610" y="232" text-anchor="middle">URL guard refuses loopback + link-local</text>
 </svg>
