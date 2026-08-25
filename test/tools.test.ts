@@ -859,23 +859,59 @@ describe('import tools', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('refuses a private-range host, which Mealie would fetch from inside', async () => {
+  it('refuses a host that only Mealie itself can reach', async () => {
     const spy = mockFetch();
     const client = await connect();
     for (const url of [
-      'http://192.168.0.7/',
-      'http://169.254.169.254/',
+      'http://169.254.169.254/latest/meta-data/',
       'http://localhost/',
-      'http://mealie.lan/',
+      'http://127.0.0.1:9000/',
+      // URL rewrites an IPv4-mapped literal into hex before any check sees it,
+      // and a dual-stack client dials it as plain 169.254.169.254.
+      'http://[::ffff:169.254.169.254]/latest/meta-data/',
+      // The root label makes the same name look different.
+      'http://localhost./',
+      // Resolves to the metadata service on the instance and nowhere else.
+      'http://metadata.google.internal/computeMetadata/v1/',
     ]) {
       const { text, isError } = await callText(client, 'preview_recipe_url', {
         url,
       });
       expect(isError, url).toBe(true);
-      expect(text, url).toMatch(/loopback, private-range or link-local/);
+      expect(text, url).toMatch(/loopback and link-local/);
     }
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('passes a private LAN address on, as of 0.1.2', async () => {
+    // Not because it will work — Mealie refuses private addresses in its own
+    // transport — but because this server no longer duplicates that decision.
+    // What it guards is the set Mealie does not guard for itself.
+    const spy = mockFetch();
+    const { isError } = await callText(await connect(), 'preview_recipe_url', {
+      url: 'http://192.168.0.7/recipe',
+    });
+    expect(isError).toBeFalsy();
+    expect(callsOf(spy)).toHaveLength(1);
+  });
+
+  it.each(['preview_recipe_url', 'import_recipe_from_url'])(
+    '%s sends the parsed URL, not the string it was given',
+    async (tool) => {
+      // The host of this is ok.example.com to a URL parser and 127.0.0.1 to a
+      // fetcher that splits at the @. Checking the argument and then forwarding
+      // it unchanged would mean Mealie fetches an address nobody looked at, so
+      // the assertion has to be about the request body — not merely that the
+      // check was called.
+      const spy = mockFetch();
+      await callText(await connect(), tool, {
+        url: 'http://ok.example.com\\@127.0.0.1/recipe',
+      });
+      const body = callsOf(spy)[0]!.body as { url: string };
+      expect(new URL(body.url).hostname).toBe('ok.example.com');
+      expect(body.url).not.toContain('ok.example.com\\@');
+    }
+  );
 
   it('previews without saving', async () => {
     const spy = mockFetch();

@@ -47,69 +47,17 @@ describe('httpUrl', () => {
     }
   });
 
-  it('rejects loopback, private, link-local and CGNAT addresses', () => {
-    // Mealie performs the fetch, so the request originates inside its network.
+  it('leaves the host to the guard that can resolve it', () => {
+    // Until 0.1.2 this schema classified the host itself. It cannot resolve a
+    // name — a Zod refinement is synchronous — so a DNS record pointing at
+    // 127.0.0.1 walked straight past it. The host check now lives in
+    // assertFetchableUrl (see hosts.test.ts); what stays here is the scheme,
+    // which is worth refusing early because it needs no lookup at all.
     for (const url of [
-      'http://localhost/a',
-      'http://sub.localhost/a',
-      'http://127.0.0.1:9000/a',
-      'http://127.1.2.3/a',
-      'http://0.0.0.0/a',
-      'http://10.1.2.3/a',
       'http://192.168.0.7/a',
-      'http://172.16.0.1/a',
-      'http://172.31.255.254/a',
-      'http://169.254.169.254/latest/meta-data/',
-      'http://100.64.0.1/a',
-      'http://239.1.1.1/a',
-      'http://[::1]/a',
-      'http://[::]/a',
-      'http://[fc00::1]/a',
-      'http://[fd12:3456::1]/a',
-      'http://[fe80::1]/a',
-    ]) {
-      expect(httpUrl.safeParse(url).success, url).toBe(false);
-    }
-  });
-
-  it('rejects every IPv6 literal, including IPv4-mapped forms', () => {
-    // `http://[::ffff:127.0.0.1]/` normalises to hostname `[::ffff:7f00:1]`,
-    // which no dotted-quad check ever sees — so the guard refuses bracketed
-    // literals as a class instead of classifying them piecemeal.
-    for (const url of [
-      'http://[::ffff:127.0.0.1]/a',
+      'https://example.com/a',
+      'http://127.0.0.1:9000/a',
       'http://[::ffff:169.254.169.254]/latest/meta-data/',
-      'http://[::ffff:192.168.0.7]/a',
-      'http://[64:ff9b::7f00:1]/a',
-      'http://[2001:db8::1]/a',
-    ]) {
-      expect(httpUrl.safeParse(url).success, url).toBe(false);
-    }
-  });
-
-  it('rejects internal-only name suffixes', () => {
-    for (const url of [
-      'http://mealie.lan/a',
-      'http://mealie.local/a',
-      'http://mealie.internal/a',
-      'http://nas.home/a',
-      'http://nas.home.arpa/a',
-      'https://MEALIE.LAN/a',
-    ]) {
-      expect(httpUrl.safeParse(url).success, url).toBe(false);
-    }
-  });
-
-  it('does not reject public addresses that merely look private', () => {
-    // 172.32/11.x is public; only 172.16–172.31 is reserved.
-    for (const url of [
-      'http://172.32.0.1/a',
-      'http://172.15.0.1/a',
-      'http://11.0.0.1/a',
-      'http://100.63.0.1/a',
-      'http://100.128.0.1/a',
-      'https://mylocal.example.com/a',
-      'https://internal-recipes.example.com/a',
     ]) {
       expect(httpUrl.safeParse(url).success, url).toBe(true);
     }
