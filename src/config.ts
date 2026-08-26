@@ -15,7 +15,15 @@ export interface Config {
    */
   acceptLanguage: string | undefined;
   insecureTls: boolean;
-  readOnly: boolean;
+  readOnly: boolean; /**
+   * Raw value of `MEALIE_ALLOW_TOOLS` — comma-separated tool names, `list_*`
+   * prefixes, or `essential`. Kept unparsed on purpose: this file is a mirror of
+   * the environment, and the names can only be checked against the tool
+   * catalogue, which `buildToolFilter` does.
+   */
+  allowTools: string | undefined;
+  /** Raw value of `MEALIE_DENY_TOOLS`, same shape, subtracted from the above. */
+  denyTools: string | undefined;
 }
 
 /** Shown when the configuration is incomplete — at startup and on every API call. */
@@ -53,6 +61,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const acceptLanguage = env.MEALIE_ACCEPT_LANGUAGE;
   const insecureTls = env.MEALIE_INSECURE_TLS === 'true';
   const readOnly = env.MEALIE_READ_ONLY === 'true';
+  const allowTools = env.MEALIE_ALLOW_TOOLS;
+  const denyTools = env.MEALIE_DENY_TOOLS;
 
   // Removed here, before any branch below can return early: the token must not
   // stay in the environment for the process lifetime, where it is visible to
@@ -69,7 +79,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   if (!url) {
-    return { url: undefined, token, acceptLanguage, insecureTls, readOnly };
+    return {
+      url: undefined,
+      token,
+      acceptLanguage,
+      insecureTls,
+      readOnly,
+      allowTools,
+      denyTools,
+    };
   }
 
   let parsed: URL;
@@ -116,6 +134,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     acceptLanguage,
     insecureTls,
     readOnly,
+    allowTools,
+    denyTools,
   };
 }
 

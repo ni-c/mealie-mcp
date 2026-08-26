@@ -17,6 +17,11 @@ collection: search and read recipes with their ingredients and steps, import new
 from a website, keep tags and categories tidy, plan meals, build shopping lists from
 those plans, and record what was actually cooked.
 
+Fifty-two tools is the ceiling, not the floor: `MEALIE_ALLOW_TOOLS=essential`
+registers a curated eight instead, and a model picks the right tool far more
+reliably from eight than from fifty-two — see
+[choosing which tools load](#choosing-which-tools-load).
+
 ![Demo](https://mealie-mcp.ni-c.de/demo.gif)
 
 <!-- <picture> is resolved against the colour scheme of the page showing it, so GitHub
@@ -42,19 +47,43 @@ published documentation, which is out of date in several places.
 
 ## Configuration
 
-| Variable                 | Required | Description                                                                 |
-| ------------------------ | -------- | --------------------------------------------------------------------------- |
-| `MEALIE_URL`             | yes      | Base URL, e.g. `https://mealie.example.com`                                 |
-| `MEALIE_API_TOKEN`       | yes      | Token from Settings → API Tokens. It acts as the user who created it.       |
-| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 17 read tools only                             |
-| `MEALIE_ACCEPT_LANGUAGE` | no       | e.g. `de-DE`; localises unit and label names                                |
-| `MEALIE_INSECURE_TLS`    | no       | Exactly `true` accepts a self-signed certificate, scoped to this connection |
+| Variable                 | Required | Description                                                                        |
+| ------------------------ | -------- | ---------------------------------------------------------------------------------- |
+| `MEALIE_URL`             | yes      | Base URL, e.g. `https://mealie.example.com`                                        |
+| `MEALIE_API_TOKEN`       | yes      | Token from Settings → API Tokens. It acts as the user who created it.              |
+| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 17 read tools only                                    |
+| `MEALIE_ACCEPT_LANGUAGE` | no       | e.g. `de-DE`; localises unit and label names                                       |
+| `MEALIE_INSECURE_TLS`    | no       | Exactly `true` accepts a self-signed certificate, scoped to this connection        |
+| `MEALIE_ALLOW_TOOLS`     | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
+| `MEALIE_DENY_TOOLS`      | no       | Same syntax; removed from whatever `MEALIE_ALLOW_TOOLS` left                       |
 
 The two booleans are compared against the literal string `true`, so a typo leaves
 them **off** — check the startup line on stderr, which reports the mode in effect.
 
 The token is removed from the process environment once it has been read, so child
 processes cannot pick it up out of `/proc/<pid>/environ`.
+
+### Choosing which tools load
+
+`MEALIE_ALLOW_TOOLS` and `MEALIE_DENY_TOOLS` take comma-separated tool names;
+a trailing `*` matches a whole family. `essential` is a curated preset of
+eight: `search_recipes`, `get_recipe`, `import_recipe_from_url`, `create_recipe`, `get_todays_meals`, `create_mealplan_entry`, `list_shopping_lists`, `add_recipe_to_shopping_list`.
+
+```sh
+MEALIE_ALLOW_TOOLS=essential
+MEALIE_ALLOW_TOOLS=search_recipes,get_recipe,import_recipe_from_url
+MEALIE_DENY_TOOLS=delete_*
+```
+
+An entry that matches no tool aborts startup and names it, so a typo cannot
+silently hide a tool — an absent tool is not something anyone traces back to an
+environment variable. A filtered tool is never registered, so it is absent from
+`tools/list` and unknown to `tools/call` alike, exactly like a write tool under
+`MEALIE_READ_ONLY`.
+
+If you run several of these servers at once, [mcp-hub](https://mcp-hub.ni-c.de)
+is the other answer — its `/hub` endpoint replaces every server's tools with six
+meta-tools.
 
 ## Install
 

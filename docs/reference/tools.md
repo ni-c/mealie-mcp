@@ -1,5 +1,10 @@
 # Tools
 
+All fifty-two are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
+`MEALIE_DENY_TOOLS` narrow the list to the ones you want, and `essential` selects a
+curated eight — see
+[choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
+
 One section per tool: what it does, its parameters, and — for destructive tools —
 the two-step confirmation flow.
 
