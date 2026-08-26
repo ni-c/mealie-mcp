@@ -1,23 +1,21 @@
 # mealie-mcp
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ni-c/mealie-mcp/ci.yml?branch=main&label=CI)](https://github.com/ni-c/mealie-mcp/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
-[![downloads](https://img.shields.io/npm/dm/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
-[![container](https://img.shields.io/badge/ghcr.io-mealie--mcp-blue?logo=docker&logoColor=white)](https://github.com/ni-c/mealie-mcp/pkgs/container/mealie-mcp)
-[![node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](https://nodejs.org)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![docs](https://img.shields.io/badge/docs-mealie--mcp.ni--c.de-4f46e5)](https://mealie-mcp.ni-c.de)
+[![npm version](https://img.shields.io/npm/v/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/%40ni-c%2Fmealie-mcp)](https://www.npmjs.com/package/@ni-c/mealie-mcp)
+[![node](https://img.shields.io/node/v/%40ni-c%2Fmealie-mcp)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/%40ni-c%2Fmealie-mcp)](LICENSE)
+[![container](https://img.shields.io/badge/ghcr.io-ni--c%2Fmealie--mcp-blue)](https://github.com/ni-c/mealie-mcp/pkgs/container/mealie-mcp)
+[![docs](https://img.shields.io/badge/docs-mealie--mcp.ni--c.de-informational)](https://mealie-mcp.ni-c.de)
 [![sponsor](https://img.shields.io/badge/sponsor-ni--c-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ni-c)
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server for
+A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
 [Mealie](https://mealie.io), the self-hosted recipe manager and meal planner.
 
-It gives a model a curated view of a Mealie instance: search and read recipes with
-their ingredients and steps, import new ones from a website, keep tags and
-categories tidy, plan meals, build shopping lists from those plans, and record what
-was actually cooked.
-
-📖 **[Full documentation at mealie-mcp.ni-c.de](https://mealie-mcp.ni-c.de)**
+Lets MCP clients like Claude Code, Claude Desktop or Codex work with your recipe
+collection: search and read recipes with their ingredients and steps, import new ones
+from a website, keep tags and categories tidy, plan meals, build shopping lists from
+those plans, and record what was actually cooked.
 
 ![Demo](https://mealie-mcp.ni-c.de/demo.gif)
 
