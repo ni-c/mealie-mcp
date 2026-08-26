@@ -64,3 +64,28 @@ the MCP handshake and answers `tools/list`, so registries and sandbox
 inspectors can introspect it. Every API call then fails with setup instructions.
 A malformed `MEALIE_URL` is the exception and exits immediately — that one could
 send the token to the wrong host.
+
+## Narrowing the tool list
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `MEALIE_ALLOW_TOOLS` | no | Tool names, `list_*` prefixes or `essential`; only these register |
+| `MEALIE_DENY_TOOLS` | no | Same syntax; subtracted from whatever the allow list left |
+
+Both are comma-separated. Each entry is either an exact tool name or a prefix with
+a single trailing `*`. Entries are trimmed and matched case-insensitively; empty
+entries are ignored, and a value that is empty or only whitespace counts as unset —
+`MEALIE_ALLOW_TOOLS=` in a compose file does not mean "allow nothing".
+`essential` is recognised only in the allow list, and selects `search_recipes`, `get_recipe`, `import_recipe_from_url`, `create_recipe`, `get_todays_meals`, `create_mealplan_entry`, `list_shopping_lists`, `add_recipe_to_shopping_list`.
+
+**An entry that matches no tool aborts startup**, naming the entry and listing the
+valid names, as does a malformed pattern such as `*_x` or `list_*_x`. The
+alternative — ignoring the entry — leaves a tool missing from `tools/list` with
+nothing pointing at the cause. If both lists together remove everything, the server
+refuses to start rather than offering an empty tool list.
+
+Under `MEALIE_READ_ONLY`, an exact write-tool name in the allow list is an
+error naming the read-only setting rather than "unknown tool"; a pattern covering
+write tools is accepted and merely contributes nothing, with a warning on stderr.
+Deny entries are exempt: denying an already-suppressed tool is how a defensive
+list is written.

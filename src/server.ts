@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { MealieApi } from './api.js';
+import { buildToolFilter, installToolFilter } from './tool-filter.js';
 import type { Config } from './config.js';
 import { ConfirmationStore } from './confirm.js';
 import { CurrentUser } from './lookup.js';
@@ -49,6 +50,10 @@ function packageVersion(): string {
 }
 
 export function createServer(config: Config): McpServer {
+  // Before anything is built: an unusable tool list should fail on the
+  // way in, not leave a server running with tools quietly missing.
+  const filter = buildToolFilter(config);
+
   const api = new MealieApi(config);
   const confirmations = new ConfirmationStore();
   const currentUser = new CurrentUser(api);
@@ -57,6 +62,10 @@ export function createServer(config: Config): McpServer {
     name: 'mealie-mcp',
     version: packageVersion(),
   });
+
+  // Wraps server.registerTool, so it has to sit before the first
+  // register call and does not care how they are organised.
+  installToolFilter(server, filter);
 
   registerInfoTools(server, api);
   registerRecipeReadTools(server, api, config);

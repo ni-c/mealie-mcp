@@ -19,6 +19,8 @@ features:
     details: Mealie's REST API has 259 operations; this server exposes the ones a model should reach, so the common tasks are one call — search, read and import recipes, keep tags and categories tidy, plan meals, build shopping lists, manage cookbooks, ratings, comments and share links.
   - title: The dangerous surface is unreachable
     details: No admin routes, no token minting, no webhooks or outbound-HTTP triggers — and no PUT-replace, which silently drops recipe fields. update_recipe uses PATCH, so only the fields you name change.
+  - title: A menu is not a plate
+    details: 'MEALIE_READ_ONLY=true registers the read tools and nothing else. MEALIE_ALLOW_TOOLS cuts finer — essential for a curated eight, your own comma-separated list, or a whole family with list_* — and MEALIE_DENY_TOOLS subtracts. Whatever is filtered out does not exist on the protocol rather than failing when called, and a name that matches no tool stops the server at startup instead of quietly going missing.'
   - title: Safe by default
     details: Destructive tools need a server-issued confirmation token, upstream content is marked untrusted, and read-only mode simply does not register the write tools.
 ---
