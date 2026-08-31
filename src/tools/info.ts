@@ -1,4 +1,5 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 
 import type { MealieApi } from '../api.js';
 import { jsonResult, run } from '../result.js';
@@ -12,7 +13,7 @@ export function registerInfoTools(server: McpServer, api: MealieApi): void {
         'Reports the Mealie version and the identity the API token acts as: user, ' +
         'group, household and the permission flags that decide which write tools ' +
         'will actually succeed. Start here when a call fails with a 403.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () =>

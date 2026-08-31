@@ -1,23 +1,13 @@
 import { createRequire } from 'node:module';
-
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { MealieApi } from './api.js';
-import { buildToolFilter, installToolFilter } from './tool-filter.js';
-import type { Config } from './config.js';
-import { ConfirmationStore } from './confirm.js';
-import { CurrentUser } from './lookup.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import {
   registerCookbookReadTools,
   registerCookbookWriteTools,
 } from './tools/cookbooks.js';
-import { registerEngagementWriteTools } from './tools/engagement.js';
 import {
   registerFoodReadTools,
   registerFoodWriteTools,
 } from './tools/foods.js';
-import { registerImportTools } from './tools/imports.js';
-import { registerInfoTools } from './tools/info.js';
 import {
   registerMealplanReadTools,
   registerMealplanWriteTools,
@@ -38,6 +28,15 @@ import {
   registerShoppingReadTools,
   registerShoppingWriteTools,
 } from './tools/shopping.js';
+
+import { MealieApi } from './api.js';
+import { buildToolFilter, installToolFilter } from './tool-filter.js';
+import type { Config } from './config.js';
+import { ConfirmationStore } from './confirm.js';
+import { CurrentUser } from './lookup.js';
+import { registerEngagementWriteTools } from './tools/engagement.js';
+import { registerImportTools } from './tools/imports.js';
+import { registerInfoTools } from './tools/info.js';
 
 function packageVersion(): string {
   try {

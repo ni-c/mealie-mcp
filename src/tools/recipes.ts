@@ -1,12 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { assertPathSegment, query, type MealieApi } from '../api.js';
-import type { Config } from '../config.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { resolveOrganizers, resolveRecipe } from '../lookup.js';
-import { textResult, run, ToolInputError, untrustedResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orderDirectionParam,
@@ -24,6 +17,12 @@ import {
   suggestion,
   timelineEvent,
 } from '../shape.js';
+
+import { assertPathSegment, query, type MealieApi } from '../api.js';
+import type { Config } from '../config.js';
+import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import { resolveOrganizers, resolveRecipe } from '../lookup.js';
+import { textResult, run, ToolInputError, untrustedResult } from '../result.js';
 
 const nameListParam = (what: string) =>
   z
@@ -49,7 +48,7 @@ export function registerRecipeReadTools(
         'times, rating, tags and categories — without ingredients or steps; use ' +
         'get_recipe for those. All filters combine with AND; within one filter ' +
         'the entries are OR unless the matching require_all_* flag is set.',
-      inputSchema: {
+      inputSchema: z.object({
         search: z
           .string()
           .trim()
@@ -90,7 +89,7 @@ export function registerRecipeReadTools(
         order_direction: orderDirectionParam,
         page: pageParam,
         per_page: perPageParam(25),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({
@@ -142,7 +141,7 @@ export function registerRecipeReadTools(
       description:
         'Fetches one recipe with everything needed to cook it: ingredients, ' +
         'steps, times, yield, notes and nutrition. Accepts the slug or the UUID.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         detail: z
           .enum(['default', 'raw'])
@@ -151,7 +150,7 @@ export function registerRecipeReadTools(
             '"default" returns the cleaned-up recipe; "raw" returns Mealie\'s ' +
               'untouched object including settings, assets, extras and inline comments'
           ),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ recipe, detail }) =>
@@ -175,7 +174,7 @@ export function registerRecipeReadTools(
         'anything on an instance that actually maintains structured foods, units ' +
         'and an on-hand pantry — on a collection of plain text ingredients it ' +
         'returns nothing. Use search_recipes there.',
-      inputSchema: {
+      inputSchema: z.object({
         foods: z
           .array(uuidParam)
           .max(50)
@@ -203,7 +202,7 @@ export function registerRecipeReadTools(
           .max(50)
           .optional()
           .describe('Number of suggestions, default 10'),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ foods, tools, max_missing_foods, max_missing_tools, limit }) =>
@@ -231,7 +230,7 @@ export function registerRecipeReadTools(
       title: 'List recipe comments',
       description:
         'Lists the comments other users of the instance left on a recipe.',
-      inputSchema: { recipe: recipeRefParam },
+      inputSchema: z.object({ recipe: recipeRefParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ recipe }) =>
@@ -255,11 +254,11 @@ export function registerRecipeReadTools(
       description:
         'Lists the timeline of a recipe: when it was created, updated and each ' +
         'time it was cooked, with the notes attached to those events.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         page: pageParam,
         per_page: perPageParam(50),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ recipe, page, per_page }) =>
@@ -355,7 +354,7 @@ export function registerRecipeWriteTools(
       description:
         'Creates a recipe from the given fields. To add one from a website use ' +
         'import_recipe_from_url instead — it fills in far more.',
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .trim()
@@ -365,7 +364,7 @@ export function registerRecipeWriteTools(
             'Recipe name. Mealie derives the slug from it and rejects a duplicate.'
           ),
         ...recipeFields,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ name, ...fields }) =>
@@ -417,11 +416,11 @@ export function registerRecipeWriteTools(
         'Changes individual fields of a recipe. Only the fields given are ' +
         'touched; everything else keeps its value. Passing an empty array for ' +
         'ingredients, instructions, tags or categories clears that list.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         name: z.string().trim().min(1).max(255).optional(),
         ...recipeFields,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, ...fields }) =>
@@ -448,7 +447,7 @@ export function registerRecipeWriteTools(
       description:
         'Creates a copy of a recipe under a new name, leaving the original ' +
         'untouched. Useful as a starting point for a variation.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         name: z
           .string()
@@ -457,7 +456,7 @@ export function registerRecipeWriteTools(
           .max(255)
           .optional()
           .describe('Name of the copy; Mealie appends a counter when omitted'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, name }) =>
@@ -477,7 +476,7 @@ export function registerRecipeWriteTools(
       description:
         'Records when a recipe was last cooked. Mealie shows this on the recipe ' +
         'and sorts by it.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         timestamp: z
           .string()
@@ -489,7 +488,7 @@ export function registerRecipeWriteTools(
           .describe(
             'When it was made, e.g. 2026-08-18 or 2026-08-18T19:30:00Z'
           ),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, timestamp }) =>
@@ -512,10 +511,10 @@ export function registerRecipeWriteTools(
         'Deletes a recipe permanently, together with its comments, timeline and ' +
         'images. Requires confirmation: call once to receive a token, then again ' +
         'with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ recipe, confirm_token }) =>

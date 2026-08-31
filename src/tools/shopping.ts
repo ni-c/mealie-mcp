@@ -1,15 +1,10 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmationPrompt,
   setResourceKey,
   type ConfirmationStore,
 } from '../confirm.js';
-import { resolveRecipe } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
 import {
   confirmTokenParam,
   pageParam,
@@ -23,6 +18,10 @@ import {
   shoppingListItem,
   shoppingListSummary,
 } from '../shape.js';
+
+import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import { resolveRecipe } from '../lookup.js';
+import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
 
 const listIdParam = uuidParam.describe(
   'Shopping list UUID, from list_shopping_lists'
@@ -38,7 +37,7 @@ export function registerShoppingReadTools(
       title: 'List shopping lists',
       description:
         'Lists the shopping lists of the household, without their items.',
-      inputSchema: { page: pageParam, per_page: perPageParam(50) },
+      inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
       annotations: { readOnlyHint: true },
     },
     async ({ page, per_page }) =>
@@ -62,13 +61,13 @@ export function registerShoppingReadTools(
       title: 'Get shopping list',
       description:
         'Fetches one shopping list with all of its items, checked and unchecked.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         include_checked: z
           .boolean()
           .optional()
           .describe('Include items already ticked off, default true'),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ list_id, include_checked }) =>
@@ -100,7 +99,7 @@ export function registerShoppingWriteTools(
     {
       title: 'Create shopping list',
       description: 'Creates an empty shopping list in the household.',
-      inputSchema: { name: z.string().trim().min(1).max(255) },
+      inputSchema: z.object({ name: z.string().trim().min(1).max(255) }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ name }) =>
@@ -117,7 +116,10 @@ export function registerShoppingWriteTools(
       description:
         'Deletes a shopping list and everything on it. Requires confirmation: ' +
         'call once to receive a token, then again with that token.',
-      inputSchema: { list_id: listIdParam, confirm_token: confirmTokenParam },
+      inputSchema: z.object({
+        list_id: listIdParam,
+        confirm_token: confirmTokenParam,
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ list_id, confirm_token }) =>
@@ -145,14 +147,14 @@ export function registerShoppingWriteTools(
         'Adds items to a shopping list as free text ("2 tbsp olive oil"). Mealie ' +
         'does not split these into food and unit automatically — run ' +
         'parse_ingredients first if that matters.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         items: z
           .array(z.string().trim().min(1).max(1000))
           .min(1)
           .max(100)
           .describe('The lines to add, one item each'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ list_id, items }) =>
@@ -185,7 +187,7 @@ export function registerShoppingWriteTools(
       description:
         'Changes items on a shopping list — most often ticking them off. Only ' +
         'the given fields are changed; the rest of each item is preserved.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         item_ids: z
           .array(uuidParam)
@@ -208,7 +210,7 @@ export function registerShoppingWriteTools(
           .max(1000)
           .optional()
           .describe('Replace the text of every listed item'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ list_id, item_ids, checked, quantity, note }) =>
@@ -272,14 +274,14 @@ export function registerShoppingWriteTools(
         'Removes items from a shopping list for good. To merely tick something ' +
         'off, use update_shopping_list_items with checked=true. Requires ' +
         'confirmation: call once to receive a token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         item_ids: z
           .array(uuidParam)
           .min(1)
           .max(100)
           .describe('Item UUIDs from get_shopping_list'),
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ item_ids, confirm_token }) =>
@@ -314,7 +316,7 @@ export function registerShoppingWriteTools(
         'is already there. Mealie remembers the recipe on the list, so ' +
         'remove_recipe_from_shopping_list can take exactly these ingredients ' +
         'back off again.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         recipe: recipeRefParam,
         servings_multiplier: z
@@ -323,7 +325,7 @@ export function registerShoppingWriteTools(
           .max(100)
           .optional()
           .describe('Scale the ingredient quantities, default 1'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ list_id, recipe, servings_multiplier }) =>
@@ -348,7 +350,7 @@ export function registerShoppingWriteTools(
         "Takes a recipe's ingredients back off a shopping list. Items that were " +
         'also needed by another recipe on the list stay, with their quantity ' +
         'reduced.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         recipe: recipeRefParam,
         servings_multiplier: z
@@ -357,7 +359,7 @@ export function registerShoppingWriteTools(
           .max(100)
           .optional()
           .describe('How much of the recipe to remove, default 1'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ list_id, recipe, servings_multiplier }) =>

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 
 import { query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
@@ -23,11 +22,11 @@ export function registerSharingReadTools(
         'Lists the public share links that currently exist, with the recipe each ' +
         'one exposes and when it expires. Anyone holding such a link can read the ' +
         'recipe without an account.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam
           .optional()
           .describe('Restrict the result to one recipe'),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ recipe }) =>
@@ -65,7 +64,7 @@ export function registerSharingWriteTools(
         'Creates a link that lets anyone read one recipe without logging in. ' +
         'Requires confirmation: call once to receive a token, then again with ' +
         'that token.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         expires_at: z
           .string()
@@ -80,7 +79,7 @@ export function registerSharingWriteTools(
               'setting a date.'
           ),
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, expires_at, confirm_token }) =>
@@ -123,11 +122,11 @@ export function registerSharingWriteTools(
       description:
         'Revokes a share link, so the recipe is no longer readable through it. ' +
         'Needs no confirmation — this narrows access rather than widening it.',
-      inputSchema: {
+      inputSchema: z.object({
         token_id: uuidParam.describe(
           'Share token UUID, from list_share_tokens'
         ),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ token_id }) =>

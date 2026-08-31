@@ -1,6 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
@@ -40,9 +39,9 @@ export function registerImportTools(
         'Fetches a URL and reports what Mealie would extract from it, WITHOUT ' +
         'saving anything. Use this to check a page before importing it, or to ' +
         'find out why an import came out empty.',
-      inputSchema: {
+      inputSchema: z.object({
         url: httpUrl.describe('Address of the recipe page to test'),
-      },
+      }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ url }) =>
@@ -67,14 +66,14 @@ export function registerImportTools(
         'happens on the Mealie server, not here. Everything the page contains — ' +
         'name, description, ingredients, steps — ends up in the collection as ' +
         'written by whoever controls that site.',
-      inputSchema: {
+      inputSchema: z.object({
         url: httpUrl.describe('Address of the recipe to import'),
         include_tags: z
           .boolean()
           .optional()
           .describe("Adopt the page's keywords as tags, default false"),
         include_categories: z.boolean().optional(),
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -108,13 +107,13 @@ export function registerImportTools(
         'image address out of the document and retrieves that, which this server ' +
         'cannot inspect. Do not paste a document from a source you would not let ' +
         'Mealie make a request for.',
-      inputSchema: {
+      inputSchema: z.object({
         data: z
           .string()
           .min(1)
           .max(MAX_HTML_CHARS)
           .describe('The page HTML, or a schema.org Recipe JSON document'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ data }) =>
@@ -137,7 +136,7 @@ export function registerImportTools(
         'card — by having Mealie run it through its configured AI provider. ' +
         'Requires an AI provider set up in Mealie; without one the call fails, ' +
         'and the setting itself is only visible to a group manager or admin.',
-      inputSchema: {
+      inputSchema: z.object({
         image_base64: z
           .string()
           .min(1)
@@ -157,7 +156,7 @@ export function registerImportTools(
           .describe(
             'Translate the extracted recipe into this language, e.g. "de" or "German"'
           ),
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

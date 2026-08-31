@@ -10,8 +10,8 @@
  * Names are suffixed with a run id so a second run does not collide with the
  * leftovers of a first one that died halfway through.
  */
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { Client } from '@modelcontextprotocol/client';
 
 const URL_ = process.env.MEALIE_URL;
 const TOKEN = process.env.MEALIE_API_TOKEN;

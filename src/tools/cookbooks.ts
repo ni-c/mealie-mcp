@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { assertPathSegment, query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   pageParam,
@@ -18,6 +13,10 @@ import {
   recipeSummary,
 } from '../shape.js';
 
+import { assertPathSegment, query, type MealieApi } from '../api.js';
+import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import { run, textResult, untrustedResult } from '../result.js';
+
 export function registerCookbookReadTools(
   server: McpServer,
   api: MealieApi
@@ -29,7 +28,7 @@ export function registerCookbookReadTools(
       description:
         'Lists the cookbooks of the household. A cookbook is a saved filter over ' +
         'the recipe collection, not a fixed set of recipes.',
-      inputSchema: { page: pageParam, per_page: perPageParam(50) },
+      inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
       annotations: { readOnlyHint: true },
     },
     async ({ page, per_page }) =>
@@ -54,7 +53,7 @@ export function registerCookbookReadTools(
       description:
         'Fetches a cookbook and the recipes it currently matches. Accepts the ' +
         'slug or the UUID.',
-      inputSchema: {
+      inputSchema: z.object({
         cookbook: z
           .string()
           .trim()
@@ -62,7 +61,7 @@ export function registerCookbookReadTools(
           .max(255)
           .describe('Cookbook slug or UUID, from list_cookbooks'),
         per_page: perPageParam(50),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ cookbook, per_page }) =>
@@ -96,7 +95,7 @@ export function registerCookbookWriteTools(
         'Creates a cookbook — a named, saved view of the recipe collection. ' +
         'Without a filter it matches every recipe; the filter itself is written ' +
         "in Mealie's own query language and is easiest to build in the web UI.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().trim().min(1).max(255),
         description: z.string().max(2000).optional(),
         query_filter: z
@@ -114,7 +113,7 @@ export function registerCookbookWriteTools(
           .describe(
             'Make the cookbook readable without a login, default false'
           ),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ name, description, query_filter, is_public }) =>
@@ -139,10 +138,10 @@ export function registerCookbookWriteTools(
         'Deletes a cookbook. The recipes it matched are not touched — a cookbook ' +
         'is only a saved filter. Requires confirmation: call once to receive a ' +
         'token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         cookbook_id: uuidParam.describe('Cookbook UUID, from list_cookbooks'),
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ cookbook_id, confirm_token }) =>

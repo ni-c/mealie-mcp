@@ -1,11 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { resolveRecipe } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   dateParam,
@@ -13,6 +7,11 @@ import {
   perPageParam,
   recipeRefParam,
 } from '../schema.js';
+
+import { query, type MealieApi } from '../api.js';
+import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import { resolveRecipe } from '../lookup.js';
+import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
 import { listFrom, mealplanEntry, paginationOf } from '../shape.js';
 
 const ENTRY_TYPES = [
@@ -47,7 +46,7 @@ export function registerMealplanReadTools(
       description:
         'Lists the meal plan of the household in a date range. Each entry is ' +
         'either a recipe reference or a free-text note.',
-      inputSchema: {
+      inputSchema: z.object({
         start_date: dateParam
           .optional()
           .describe('First day to include, YYYY-MM-DD'),
@@ -56,7 +55,7 @@ export function registerMealplanReadTools(
           .describe('Last day to include, YYYY-MM-DD'),
         page: pageParam,
         per_page: perPageParam(50),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ start_date, end_date, page, per_page }) =>
@@ -94,7 +93,7 @@ export function registerMealplanReadTools(
       description:
         'Returns the recipes planned for today, as Mealie computes "today" for ' +
         'the household. Answers with a bare list, not a paginated envelope.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () =>
@@ -122,7 +121,7 @@ export function registerMealplanWriteTools(
         'Puts a recipe or a free-text note on the meal plan for one day. Give ' +
         'either a recipe or a title, not both — Mealie stores a plan entry as one ' +
         'or the other.',
-      inputSchema: {
+      inputSchema: z.object({
         date: dateParam.describe('Day of the meal, YYYY-MM-DD'),
         entry_type: entryTypeParam,
         recipe: recipeRefParam
@@ -140,7 +139,7 @@ export function registerMealplanWriteTools(
           .max(2000)
           .optional()
           .describe('Additional note shown under the title'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ date, entry_type, recipe, title, text }) =>
@@ -172,10 +171,10 @@ export function registerMealplanWriteTools(
       description:
         'Lets Mealie pick a recipe for a day and slot, honouring the meal plan ' +
         'rules configured in the household.',
-      inputSchema: {
+      inputSchema: z.object({
         date: dateParam.describe('Day of the meal, YYYY-MM-DD'),
         entry_type: entryTypeParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ date, entry_type }) =>
@@ -194,14 +193,14 @@ export function registerMealplanWriteTools(
       title: 'Change a meal plan entry',
       description:
         'Moves an entry to another day or slot, or replaces the recipe behind it.',
-      inputSchema: {
+      inputSchema: z.object({
         entry_id: entryIdParam,
         date: dateParam.optional(),
         entry_type: entryTypeParam.optional(),
         recipe: recipeRefParam.optional(),
         title: z.string().trim().min(1).max(255).optional(),
         text: z.string().max(2000).optional(),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ entry_id, date, entry_type, recipe, title, text }) =>
@@ -236,10 +235,10 @@ export function registerMealplanWriteTools(
         'Removes one entry from the meal plan. The recipe itself is not touched. ' +
         'Requires confirmation: call once to receive a token, then again with ' +
         'that token.',
-      inputSchema: {
+      inputSchema: z.object({
         entry_id: entryIdParam,
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ entry_id, confirm_token }) =>

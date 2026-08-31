@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orderDirectionParam,
@@ -12,6 +7,10 @@ import {
   perPageParam,
   uuidParam,
 } from '../schema.js';
+
+import { query, type MealieApi } from '../api.js';
+import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import { run, textResult, untrustedResult } from '../result.js';
 import { listFrom, organizerSummary, paginationOf } from '../shape.js';
 
 /**
@@ -62,7 +61,7 @@ export function registerOrganizerReadTools(
       description:
         'Lists the tags, categories or tools defined in the group, with their ' +
         'ids and slugs. These are the values search_recipes filters on.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         search: z
           .string()
@@ -74,7 +73,7 @@ export function registerOrganizerReadTools(
         page: pageParam,
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ kind, search, page, per_page, order_direction }) =>
@@ -111,10 +110,10 @@ export function registerOrganizerWriteTools(
         'Creates a tag, category or recipe tool. Assigning one to a recipe with ' +
         'update_recipe already creates it on the fly — this tool is for defining ' +
         'one up front.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         name: z.string().trim().min(1).max(255),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ kind, name }) =>
@@ -132,11 +131,11 @@ export function registerOrganizerWriteTools(
       description:
         'Renames a tag, category or tool. Mealie regenerates the slug from the ' +
         'new name, so anything referring to the old slug stops matching.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         id: uuidParam.describe('UUID from list_organizers'),
         name: z.string().trim().min(1).max(255).describe('The new name'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ kind, id, name }) =>
@@ -155,11 +154,11 @@ export function registerOrganizerWriteTools(
         'Deletes a tag, category or tool. The recipes themselves are kept, but ' +
         'they lose the assignment. Requires confirmation: call once to receive a ' +
         'token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         id: uuidParam.describe('UUID from list_organizers'),
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ kind, id, confirm_token }) =>

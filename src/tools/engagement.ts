@@ -1,6 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 
 import { assertPathSegment, type MealieApi } from '../api.js';
 import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
@@ -22,7 +21,7 @@ export function registerEngagementWriteTools(
       description:
         'Sets the personal rating of a recipe and/or marks it as a favourite. ' +
         'Ratings in Mealie are per user, not per recipe.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         rating: z
           .number()
@@ -31,7 +30,7 @@ export function registerEngagementWriteTools(
           .optional()
           .describe('Stars from 0 to 5; 0 clears the rating'),
         is_favorite: z.boolean().optional(),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, rating, is_favorite }) =>
@@ -64,10 +63,10 @@ export function registerEngagementWriteTools(
       description:
         'Adds a comment to a recipe. Comments are visible to everyone in the ' +
         'group and are attributed to the user the API token belongs to.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         text: z.string().trim().min(1).max(10_000),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, text }) =>
@@ -88,12 +87,12 @@ export function registerEngagementWriteTools(
       description:
         'Deletes a comment. Requires confirmation: call once to receive a token, ' +
         'then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         comment_id: uuidParam.describe(
           'Comment UUID, from list_recipe_comments'
         ),
         confirm_token: confirmTokenParam,
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ comment_id, confirm_token }) =>
@@ -121,7 +120,7 @@ export function registerEngagementWriteTools(
         "Adds an entry to a recipe's timeline — typically a note about having " +
         'cooked it and how it turned out. Pair it with set_recipe_last_made, ' +
         'which is what the recipe view sorts on.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         subject: z
           .string()
@@ -139,7 +138,7 @@ export function registerEngagementWriteTools(
           )
           .optional()
           .describe('When it happened; defaults to now'),
-      },
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ recipe, subject, message, timestamp }) =>
