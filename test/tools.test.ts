@@ -11,6 +11,7 @@ const config: Config = {
   acceptLanguage: undefined,
   insecureTls: false,
   readOnly: false,
+  elicitation: true,
 };
 
 /**
@@ -186,9 +187,33 @@ describe('tool registration', () => {
     const byName = new Map(tools.map((t) => [t.name, t.annotations]));
     expect(byName.get('search_recipes')?.readOnlyHint).toBe(true);
     expect(byName.get('delete_recipe')?.destructiveHint).toBe(true);
-    expect(byName.get('update_recipe')?.destructiveHint).toBe(false);
     // The import tools reach outside the instance.
     expect(byName.get('import_recipe_from_url')?.openWorldHint).toBe(true);
+  });
+
+  it('counts an update as destructive, because Mealie keeps no history', async () => {
+    // The verb is not what decides it. `update_recipe` with a new instruction
+    // list replaces the old one and there is nowhere to read it back from —
+    // where Wiki.js has page history and its `update_page` genuinely is not
+    // destructive. Adding to a collection is a different thing again and stays
+    // additive.
+    const { tools } = await (await connect()).listTools();
+    const byName = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const name of [
+      'update_recipe',
+      'update_organizer',
+      'update_mealplan_entry',
+      'update_shopping_list_items',
+    ]) {
+      expect(byName.get(name)?.destructiveHint, name).toBe(true);
+    }
+    for (const name of [
+      'add_shopping_list_items',
+      'add_recipe_comment',
+      'create_recipe',
+    ]) {
+      expect(byName.get(name)?.destructiveHint, name).toBe(false);
+    }
   });
 
   it('declares all four annotation hints on every tool', async () => {
@@ -907,13 +932,32 @@ describe('confirmation flow', () => {
     expect(text).toContain('/shared/recipes/');
   });
 
-  it('revokes a share link without a confirmation', async () => {
+  it('asks before it revokes a share link, and revokes once agreed', async () => {
+    // It used to go through unannounced, on the grounds that revoking narrows
+    // access rather than widening it. The direction is the safe one; what is
+    // not is that the link cannot be reissued — a new share token is a
+    // different URL, so whoever was sent the old one finds a dead link and
+    // this server cannot tell whom that was.
     const spy = mockFetch();
-    const { isError } = await callText(await connect(), 'delete_share_token', {
+    const client = await connect({}, 'accept');
+    const { isError } = await callText(client, 'delete_share_token', {
       token_id: '55555555-5555-4555-8555-555555555555',
     });
+    expect(client.prompts).toHaveLength(1);
+    expect(client.prompts[0]).toContain('cannot be reissued');
     expect(isError).toBe(false);
     expect(callsOf(spy)[0]!.method).toBe('DELETE');
+  });
+
+  it('revokes nothing when the person declines', async () => {
+    const spy = mockFetch();
+    const { isError } = await callText(
+      await connect({}, 'decline'),
+      'delete_share_token',
+      { token_id: '55555555-5555-4555-8555-555555555555' }
+    );
+    expect(isError).toBe(true);
+    expect(callsOf(spy)).toHaveLength(0);
   });
 
   it('binds the share confirmation to the expiry as well', async () => {

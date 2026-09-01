@@ -139,16 +139,49 @@ export function registerSharingWriteTools(
       title: 'Revoke a public share link',
       description:
         'Revokes a share link, so the recipe is no longer readable through it. ' +
-        'Needs no confirmation — this narrows access rather than widening it.',
+        'Asks a person first; where the client cannot show a dialog, call once ' +
+        'to receive a token and again with it.',
       inputSchema: z.object({
         token_id: uuidParam.describe(
           'Share token UUID, from list_share_tokens'
         ),
+        confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
     },
-    async ({ token_id }) =>
+    async ({ token_id, confirm_token }, mcp) =>
       run(async () => {
+        // It used to say "needs no confirmation — this narrows access rather
+        // than widening it", and the direction is indeed the safe one. What is
+        // not safe is that the link cannot be reissued: a new share token is a
+        // new URL, so whoever was sent the old one simply finds a dead link,
+        // and this server cannot tell whom that was.
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `revoke the share link with id ${token_id}`,
+            consequence:
+              'Anyone holding that URL loses access immediately, and it cannot ' +
+              'be reissued — a new link is a different URL, which whoever had ' +
+              'the old one will not have.',
+            resourceKey: `delete_share_token:${token_id}`,
+            token: confirm_token,
+            toolName: 'delete_share_token',
+            hint: 'Tick to revoke it, leave it to cancel.',
+          }
+        );
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_share_token did nothing.`
+          );
+        }
+        if (outcome.decision === 'pending') return outcome.result;
+
         await api.delete(`/api/shared/recipes/${token_id}`);
         return textResult(`Revoked the share link with id ${token_id}.`);
       })

@@ -22,7 +22,7 @@ features:
   - title: A menu is not a plate
     details: 'MEALIE_READ_ONLY=true registers the read tools and nothing else. MEALIE_ALLOW_TOOLS cuts finer — essential for a curated eight, your own comma-separated list, or a whole family with list_* — and MEALIE_DENY_TOOLS subtracts. Whatever is filtered out does not exist on the protocol rather than failing when called, and a name that matches no tool stops the server at startup instead of quietly going missing.'
   - title: Safe by default
-    details: Destructive tools need a server-issued confirmation token, upstream content is marked untrusted, and read-only mode simply does not register the write tools.
+    details: 'The eleven irreversible tools ask a person first, through MCP elicitation — a dialog the model cannot answer on its behalf, falling back to a server-issued token bound to the exact target where the client cannot show one. Upstream content is marked untrusted, and read-only mode simply does not register the write tools.'
 ---
 
 <figure class="diagram">
@@ -47,7 +47,7 @@ features:
   <rect class="node-accent" x="280" y="55" width="170" height="110" rx="10" />
   <text class="label-title" x="365" y="87" text-anchor="middle">mealie-mcp</text>
   <text class="label-muted" x="365" y="107" text-anchor="middle">52 tools</text>
-  <text class="label-muted" x="365" y="125" text-anchor="middle">confirm tokens</text>
+  <text class="label-muted" x="365" y="125" text-anchor="middle">asks a person</text>
   <text class="label-muted" x="365" y="143" text-anchor="middle">read-only mode</text>
 
   <rect class="node" x="550" y="70" width="150" height="80" rx="10" />
@@ -66,7 +66,7 @@ features:
   <text class="label-muted" x="610" y="232" text-anchor="middle">URL guard refuses loopback + link-local</text>
 </svg>
 <!-- ARCHITECTURE:END -->
-<figcaption>One stdio server between the MCP client and the Mealie REST API — destructive calls gated by confirmation tokens, upstream content marked untrusted.</figcaption>
+<figcaption>One stdio server between the MCP client and the Mealie REST API — destructive calls put to a person first, upstream content marked untrusted.</figcaption>
 </figure>
 
 ## See it in action

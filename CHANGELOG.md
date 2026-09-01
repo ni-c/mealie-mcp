@@ -20,7 +20,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a prompt. The two-call `confirm_token` remains for clients that cannot, so
   nothing that works today stops working — but where a person can be asked, one
   is, instead of a token that only proves the same call was made twice. This
-  covers all nine guarded tools, `create_share_token` among them.
+  covers all guarded tools, `create_share_token` among them.
+
+- **`delete_share_token` now asks too.** Its description said in so many words
+  that it needed "no confirmation — this narrows access rather than widening it",
+  and the direction really is the safe one. What is not is that the link cannot be
+  reissued: a new share token is a different URL, so whoever was sent the old one
+  finds a dead link, and this server cannot tell whom that was.
+
+- `ELICITATION` switches the dialog off — `false` sends a client that could have
+  been asked down the two-call-token path instead. For a scheduled job or a test
+  harness, where a dialog is the wrong shape rather than an unwanted one.
+
+  It does **not** remove the guard: there is no setting in which a guarded call
+  goes unannounced. Two deliberate rough edges come with it. The variable is
+  **not prefixed**, so one `export ELICITATION=false` reaches every MCP server in
+  the environment — which is why a server started with it off prints a line
+  saying so, and why the fallback text names the server instead of blaming a
+  client that was working fine. And a value that is neither `true` nor `false`
+  **stops the server**, where the `MEALIE_*` booleans beside it fail _off_ on a
+  typo: this is the only variable here that defaults to _on_. It is read after
+  `MEALIE_API_TOKEN` is wiped from the environment, so that exit cannot leave the
+  token behind.
+
+- A `docs/guide/approval.md` page.
+
+### Fixed
+
+- **`merge_foods` and `merge_units` named the wrong tool.** Both come out of one
+  factory, and the factory passed `toolName: 'create_unit'` — a real, unrelated
+  tool of this server. That name is printed in two places a caller acts on: the
+  fallback instruction ("call `create_unit` again with the token") and the
+  sentence after a decline. Callers were being pointed at something that creates
+  rather than merges. Introduced on 2026-09-01 with the move to `mcp-approval`.
+
+- Four `update_*` tools were annotated `destructiveHint: false`:
+  `update_recipe`, `update_organizer`, `update_mealplan_entry` and
+  `update_shopping_list_items`. Mealie keeps no version history, so replacing an
+  instruction list leaves nowhere to read the old one back from — that is the
+  definition the whole family uses, and Wiki.js's `update_page` is genuinely on
+  the other side of it because Wiki.js _has_ page history. The difference is the
+  backend, not the verb.
 
 ### Changed
 

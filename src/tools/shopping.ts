@@ -234,7 +234,7 @@ export function registerShoppingWriteTools(
           .optional()
           .describe('Replace the text of every listed item'),
       }),
-      annotations: WRITE,
+      annotations: DESTRUCTIVE,
     },
     async ({ list_id, item_ids, checked, quantity, note }) =>
       run(async () => {

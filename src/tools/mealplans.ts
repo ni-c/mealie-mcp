@@ -209,7 +209,7 @@ export function registerMealplanWriteTools(
         title: z.string().trim().min(1).max(255).optional(),
         text: z.string().max(2000).optional(),
       }),
-      annotations: WRITE,
+      annotations: DESTRUCTIVE,
     },
     async ({ entry_id, date, entry_type, recipe, title, text }) =>
       run(async () => {

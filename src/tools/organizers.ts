@@ -138,7 +138,7 @@ export function registerOrganizerWriteTools(
         id: uuidParam.describe('UUID from list_organizers'),
         name: z.string().trim().min(1).max(255).describe('The new name'),
       }),
-      annotations: WRITE,
+      annotations: DESTRUCTIVE,
     },
     async ({ kind, id, name }) =>
       run(async () => {

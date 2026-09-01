@@ -429,7 +429,7 @@ export function registerRecipeWriteTools(
         name: z.string().trim().min(1).max(255).optional(),
         ...recipeFields,
       }),
-      annotations: WRITE,
+      annotations: DESTRUCTIVE,
     },
     async ({ recipe, ...fields }) =>
       run(async () => {

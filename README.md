@@ -56,6 +56,7 @@ published documentation, which is out of date in several places.
 | `MEALIE_INSECURE_TLS`    | no       | Exactly `true` accepts a self-signed certificate, scoped to this connection        |
 | `MEALIE_ALLOW_TOOLS`     | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
 | `MEALIE_DENY_TOOLS`      | no       | Same syntax; removed from whatever `MEALIE_ALLOW_TOOLS` left                       |
+| `ELICITATION`            | no       | `false` replaces the approval dialog with the two-call token. **Not prefixed**     |
 
 The two booleans are compared against the literal string `true`, so a typo leaves
 them **off** — check the startup line on stderr, which reports the mode in effect.
@@ -166,11 +167,14 @@ npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
 **Notes and sharing** — `set_recipe_rating`, `add_recipe_comment`,
 `delete_recipe_comment` 🔒, `list_recipe_comments`, `list_recipe_timeline`,
 `create_timeline_event`, `list_share_tokens`, `create_share_token` 🔒,
-`delete_share_token`
+`delete_share_token` 🔒
 
 **Instance** — `get_about`
 
-🔒 needs a confirmation token: call once to receive one, then again with it.
+🔒 asks a person through MCP elicitation — a dialog the model cannot answer on its
+behalf. Where the client cannot show one it falls back to a two-call
+`confirm_token`. See
+[Asking a person](https://mealie-mcp.ni-c.de/guide/approval).
 
 Recipes can be addressed by slug or by UUID everywhere — Mealie splits its
 identifier space between the two, and the tools resolve whichever they are given.

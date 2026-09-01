@@ -44,6 +44,17 @@ off, never on — check the startup line on stderr, which reports the mode in
 effect.
 :::
 
+## Turning the approval dialog off
+
+The eleven guarded tools ask a person through MCP elicitation before they act.
+`ELICITATION=false` takes them to the two-call token instead. It does not remove
+the guard; there is no setting in which a guarded call goes unannounced.
+
+The variable deliberately carries no `MEALIE_` prefix, which means it reaches every
+MCP server in the same environment, and — unlike the booleans above — a value it
+does not recognise **stops the server** rather than failing off. See
+[Asking a person](/guide/approval).
+
 ## TLS
 
 Prefer `https://`. Using plain `http://` to a non-local host prints a warning:

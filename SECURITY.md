@@ -74,11 +74,21 @@ rather than a URL, and Mealie reads the image address out of that document and f
 it; this server never sees that address. And a redirect is a URL it never saw either.
 The real boundary is Mealie's own network egress.
 
-## Confirmation tokens
+## The confirmation, honestly
 
-Deleting a recipe, organizer, cookbook, shopping list or comment, merging foods or
-units, and creating a public share link all require a server-generated token that is
-bound to the specific target and can be used once. A model cannot satisfy that gate
-on its own, and a token issued for one target cannot be replayed against another —
-for operations on a set of ids the token is bound to a fingerprint of the whole
-sorted set, and for a merge to the direction as well.
+Eleven tools **ask a person** through MCP elicitation: the deletes, the two merges,
+and both share-link tools. That is a dialog raised by the server and shown by the
+client, which the model cannot answer on its behalf; nothing happens until an answer
+comes back.
+
+Where the client cannot show a dialog they fall back to a server-generated token
+that can be used once. That fallback is weaker and this server says so rather than
+implying somebody approved: it proves the call was made twice with the same
+arguments, and nothing more. `ELICITATION=false` moves a capable client onto it
+deliberately — it does not remove the guard, and the server prints one line at
+startup saying it is off.
+
+Either way the approval is bound to the specific target, so one issued for one
+target cannot be replayed against another. For operations on a set of ids it is
+bound to a fingerprint of the whole sorted set, and for a merge to the direction as
+well.

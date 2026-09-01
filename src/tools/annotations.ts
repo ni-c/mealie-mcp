@@ -40,13 +40,22 @@ export const WRITE = {
   openWorldHint: false,
 } as const;
 
-/** A write that replaces or removes something a person put there. */
+/**
+ * A write that replaces or removes something a person put there.
+ *
+ * The `update_*` tools are in here, which is worth saying out loud because
+ * "update" sounds additive. Mealie keeps no version history: `update_recipe`
+ * with a new instruction list replaces the old one and there is nowhere to
+ * read it back from. Wiki.js has page history and its `update_page` really is
+ * non-destructive — the difference is the backend, not the verb.
+ */
 export const DESTRUCTIVE = {
   readOnlyHint: false,
   destructiveHint: true,
   // Every destructive tool here names an absolute target — a recipe id, a
-  // list of item ids, a merge pair. Repeating the call leaves the same world;
-  // the second one merely fails, which the specification does not count.
+  // list of item ids, a merge pair — and carries the whole new value rather
+  // than a delta. Repeating the call leaves the same world; a second delete
+  // merely fails, which the specification does not count as an effect.
   idempotentHint: true,
   openWorldHint: false,
 } as const;

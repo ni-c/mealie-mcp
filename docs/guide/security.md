@@ -35,29 +35,46 @@ and image uploads.
 recipe object, so a partial update through it silently drops ingredients, steps
 and tags. `update_recipe` uses `PATCH`.
 
-## Confirmation tokens
+## The confirmation, honestly
 
-Deleting a recipe, organizer, cookbook, shopping list or comment, merging foods
-or units, and creating a public share link all require a server-generated token:
-the first call returns the token together with a description of what is about to
-happen, the second call — same tool, same arguments, plus the token — performs
-it.
+Eleven tools **ask a person** before they act: deleting a recipe, organizer,
+cookbook, shopping list, shopping-list items, mealplan entry or comment, merging
+foods or units, and creating or revoking a public share link.
 
-The tokens are single-use and bound to the specific target, so a model cannot
-satisfy the gate on its own and a token issued for one target cannot be replayed
-against another. For operations on a set of ids the token is bound to a
-fingerprint of the whole sorted set — a confirmation for three shopping-list
-items cannot delete a fourth appended between the two calls — and for a merge to
-the direction as well, because swapping the arguments would destroy the wrong
+Where the MCP client supports elicitation, that is a **dialog** shown to whoever
+is sitting there — the model cannot answer it on their behalf, and nothing
+happens until an answer comes back.
+
+Where the client cannot show a dialog, the tool falls back to a single-use token:
+the first call returns it together with a description of what is about to happen,
+the second call — same tool, same arguments, plus the token — performs it. Be
+clear about what that proves, because this server is: **the call was made twice
+with the same arguments, and nothing more.** A model can read the token out of
+the first result and quote it back in the same turn. The fallback text says so
+rather than implying somebody approved, and names whether it was the client that
+could not be asked or the operator who switched the dialog off with
+`ELICITATION=false`.
+
+Either way the approval is bound to the specific target, so one issued for one
+target cannot be replayed against another. For operations on a set of ids it is
+bound to a fingerprint of the whole sorted set — an approval for three
+shopping-list items cannot delete a fourth appended in between — and for a merge
+to the direction as well, because swapping the arguments would destroy the wrong
 record.
 
-`create_share_token` is guarded even though it destroys nothing: it is the one
-tool that widens who can see the data, and unlike a deletion the effect is
-invisible until someone uses the link. `delete_share_token` needs no
-confirmation — it narrows access.
+Two on that list destroy nothing:
+
+- `create_share_token` widens who can see the data, and unlike a deletion the
+  effect is invisible until someone uses the link.
+- `delete_share_token` narrows access, which is the safe direction — but the
+  link cannot be reissued. A new share token is a different URL, so whoever was
+  sent the old one simply finds a dead link, and this server cannot tell whom
+  that was. It used to say in so many words that it needed no confirmation.
 
 Confirmation prompts quote **no upstream text** — ids, counts and flags only —
 so a hostile recipe name cannot ride along into the prompt the user approves.
+
+See [Asking a person](/guide/approval).
 
 ## Untrusted content
 
