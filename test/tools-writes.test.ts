@@ -1,30 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 
-import type { Config } from '../src/config.js';
-import { createServer } from '../src/server.js';
-
-const config: Config = {
-  url: 'https://mealie.example.com',
-  token: 'test-token',
-  acceptLanguage: undefined,
-  insecureTls: false,
-  readOnly: false,
-};
-
-const GENERIC = {
-  id: '11111111-1111-4111-8111-111111111111',
-  slug: 'quark-bowl',
-  name: 'Quark Bowl',
-  items: [],
-  listItems: [],
-  recipeIngredient: [],
-  recipeInstructions: [],
-  tags: [],
-  recipeCategory: [],
-  tools: [],
-  notes: [],
-};
+import {
+  callsOf,
+  callText,
+  confirmed,
+  connect,
+  GENERIC,
+  mockFetch,
+  tokenOf,
+} from './harness.js';
 
 const TAG_ID = '33333333-3333-4333-8333-333333333333';
 const OTHER_ID = '44444444-4444-4444-8444-444444444444';
@@ -32,82 +16,6 @@ const OTHER_ID = '44444444-4444-4444-8444-444444444444';
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-async function connect(): Promise<Client> {
-  const server = createServer(config);
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '0.0.0' });
-  await Promise.all([
-    client.connect(clientTransport),
-    server.connect(serverTransport),
-  ]);
-  return client;
-}
-
-function mockFetch(bodies: unknown[] | unknown = GENERIC) {
-  const queue = Array.isArray(bodies) ? [...bodies] : undefined;
-  return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-    const payload = queue === undefined ? bodies : (queue.shift() ?? GENERIC);
-    return new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  });
-}
-
-interface Call {
-  url: string;
-  method: string;
-  body: unknown;
-}
-
-function callsOf(spy: { mock: { calls: unknown[][] } }): Call[] {
-  return spy.mock.calls.map(([url, init]) => {
-    const request = (init ?? {}) as RequestInit;
-    return {
-      url: String(url),
-      method: request.method ?? 'GET',
-      body:
-        typeof request.body === 'string'
-          ? (JSON.parse(request.body) as unknown)
-          : undefined,
-    };
-  });
-}
-
-async function callText(
-  client: Client,
-  name: string,
-  args: Record<string, unknown> = {}
-): Promise<{ text: string; isError: boolean }> {
-  const result = await client.callTool({ name, arguments: args });
-  const content = result.content as { text?: string }[];
-  return {
-    text: content.map((c) => c.text ?? '').join('\n'),
-    isError: Boolean(result.isError),
-  };
-}
-
-function tokenOf(text: string): string {
-  const match = /confirm_token="([0-9a-f]+)"/.exec(text);
-  if (!match?.[1]) throw new Error(`no confirmation token in: ${text}`);
-  return match[1];
-}
-
-/** Runs the two-call confirmation dance and returns the second result. */
-async function confirmed(
-  client: Client,
-  name: string,
-  args: Record<string, unknown>
-): Promise<{ text: string; isError: boolean; prompt: string }> {
-  const first = await callText(client, name, args);
-  const second = await callText(client, name, {
-    ...args,
-    confirm_token: tokenOf(first.text),
-  });
-  return { ...second, prompt: first.text };
-}
 
 describe('organizer writes', () => {
   it('renames through PUT on the kind-specific path', async () => {

@@ -1,60 +1,14 @@
-/**
- * What this repository still has to prove about its tool filter.
- *
- * The filter lives in `mcp-tool-allowlist` and is tested there: pattern syntax,
- * the preset, how a rejected entry is quoted back, the shape of every message.
- * Repeating that here would test the dependency.
- *
- * What only this repository can assert is the wiring — that the catalogue names
- * exactly the tools the server registers, that the messages name *these*
- * variables, and that a filtered tool is really gone rather than merely hidden.
- */
-import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ToolFilterError } from 'mcp-tool-allowlist';
+
+import { createServer } from '../src/server.js';
 import {
   ALL_TOOLS,
   ESSENTIAL_TOOLS,
   READ_TOOLS,
   WRITE_TOOLS,
 } from '../src/tools/catalogue.js';
-
-import type { Config } from '../src/config.js';
-import { createServer } from '../src/server.js';
-import { ToolFilterError } from 'mcp-tool-allowlist';
-
-const base: Config = {
-  url: 'https://mealie.example.com',
-  token: 'test-token',
-  acceptLanguage: undefined,
-  insecureTls: false,
-  readOnly: false,
-  allowTools: undefined,
-  denyTools: undefined,
-};
-
-function config(overrides: Partial<Config> = {}): Config {
-  return { ...base, ...overrides };
-}
-
-/** The tools a server built with this configuration actually offers. */
-async function toolNames(overrides: Partial<Config> = {}): Promise<string[]> {
-  vi.stubGlobal('fetch', vi.fn());
-  const server = createServer(config(overrides));
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
-  const { tools } = await client.listTools();
-  return tools.map((t) => t.name).sort();
-}
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
+import { connect, testConfig, toolNames } from './harness.js';
 
 describe('the catalogue', () => {
   // These are what let the filter validate a name before anything is
@@ -145,14 +99,7 @@ describe('a filtered-out tool', () => {
         });
       })
     );
-    const server = createServer(config({ allowTools: 'get_about' }));
-    const client = new Client({ name: 'test-client', version: '0.0.0' });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
-    ]);
+    const client = await connect({ allowTools: 'get_about' });
 
     // SDK v2 reports an unknown tool as a JSON-RPC error rather than as a
     // result carrying isError. Either way the call fails and nothing reaches
@@ -171,22 +118,22 @@ describe('refusing an unusable list', () => {
   it('rejects a name no tool has, and says which names exist', () => {
     // A typo that was merely ignored would leave a tool missing with no trace
     // of why — nobody looks for the cause of an absence in an env var.
-    expect(() => createServer(config({ allowTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ allowTools: 'get_abouz' }))).toThrow(
       ToolFilterError
     );
-    expect(() => createServer(config({ allowTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ allowTools: 'get_abouz' }))).toThrow(
       /no tool matches "get_abouz".*get_about/s
     );
   });
 
   it('applies the same rule to the deny list', () => {
-    expect(() => createServer(config({ denyTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ denyTools: 'get_abouz' }))).toThrow(
       /_DENY_TOOLS: no tool matches "get_abouz"/
     );
   });
 
   it('rejects a list that would leave no tools at all', () => {
-    expect(() => createServer(config({ denyTools: '*' }))).toThrow(
+    expect(() => createServer(testConfig({ denyTools: '*' }))).toThrow(
       /empty tool list/
     );
   });
@@ -200,7 +147,9 @@ describe('together with read-only mode', () => {
     // the reader looking for a typo that is not there.
     let thrown: unknown;
     try {
-      createServer(config({ ...readOnly, allowTools: 'add_recipe_comment' }));
+      createServer(
+        testConfig({ ...readOnly, allowTools: 'add_recipe_comment' })
+      );
     } catch (error) {
       thrown = error;
     }
@@ -243,7 +192,7 @@ describe('together with read-only mode', () => {
     // whole allow list, the empty server needs the real explanation.
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() =>
-      createServer(config({ ...readOnly, allowTools: 'add_*' }))
+      createServer(testConfig({ ...readOnly, allowTools: 'add_*' }))
     ).toThrow(/read-only mode suppresses.*MEALIE_READ_ONLY is set/s);
   });
 });
