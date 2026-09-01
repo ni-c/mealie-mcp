@@ -1,3 +1,14 @@
+/**
+ * What this repository still has to prove about its tool filter.
+ *
+ * The filter lives in `mcp-tool-allowlist` and is tested there: pattern syntax,
+ * the preset, how a rejected entry is quoted back, the shape of every message.
+ * Repeating that here would test the dependency.
+ *
+ * What only this repository can assert is the wiring — that the catalogue names
+ * exactly the tools the server registers, that the messages name *these*
+ * variables, and that a filtered tool is really gone rather than merely hidden.
+ */
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,7 +20,7 @@ import {
 
 import type { Config } from '../src/config.js';
 import { createServer } from '../src/server.js';
-import { ToolFilterError } from '../src/tool-filter.js';
+import { ToolFilterError } from 'mcp-tool-allowlist';
 
 const base: Config = {
   url: 'https://mealie.example.com',
@@ -115,19 +126,6 @@ describe('selecting tools', () => {
     ).toEqual([...ESSENTIAL_TOOLS, 'add_recipe_comment'].sort());
   });
 
-  it('trims entries, ignores case and skips empty ones', async () => {
-    expect(
-      await toolNames({ allowTools: ' GET_ABOUT ,, get_cookbook, ' })
-    ).toEqual(['get_about', 'get_cookbook'].sort());
-  });
-
-  it('treats an empty value as no filter at all', async () => {
-    // `ALLOW_TOOLS=` in a compose file must not mean "allow nothing".
-    expect(await toolNames({ allowTools: '   ' })).toEqual(
-      [...ALL_TOOLS].sort()
-    );
-  });
-
   it('leaves an unconfigured server untouched', async () => {
     expect(await toolNames()).toEqual([...ALL_TOOLS].sort());
   });
@@ -178,21 +176,6 @@ describe('refusing an unusable list', () => {
     );
     expect(() => createServer(config({ allowTools: 'get_abouz' }))).toThrow(
       /no tool matches "get_abouz".*get_about/s
-    );
-  });
-
-  it('rejects a pattern that matches nothing', () => {
-    expect(() => createServer(config({ allowTools: 'zzz_*' }))).toThrow(
-      /no tool matches "zzz_\*"/
-    );
-  });
-
-  it('rejects a pattern with the star anywhere but last', () => {
-    expect(() => createServer(config({ allowTools: '*_x' }))).toThrow(
-      /single trailing "\*"/
-    );
-    expect(() => createServer(config({ allowTools: 'create_*_x' }))).toThrow(
-      /single trailing "\*"/
     );
   });
 
@@ -261,6 +244,6 @@ describe('together with read-only mode', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() =>
       createServer(config({ ...readOnly, allowTools: 'add_*' }))
-    ).toThrow(/only write tools, but .*_READ_ONLY is set/);
+    ).toThrow(/read-only mode suppresses.*MEALIE_READ_ONLY is set/s);
   });
 });
