@@ -139,13 +139,12 @@ describe('tool registration', () => {
     // server refuses to provide, so they are not registered at all.
     const { tools } = await (await connect({ readOnly: true })).listTools();
     const names = tools.map((t) => t.name);
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(18);
     for (const write of [
       'create_recipe',
       'update_recipe',
       'delete_recipe',
       'import_recipe_from_url',
-      'preview_recipe_url',
       'create_share_token',
       'merge_foods',
     ]) {
@@ -153,6 +152,23 @@ describe('tool registration', () => {
     }
     expect(names).toContain('search_recipes');
     expect(names).toContain('get_recipe');
+    // preview_recipe_url saves nothing and is annotated read-only. It used to
+    // be suppressed here, which made the catalogue and the annotation say
+    // opposite things about the same tool.
+    expect(names).toContain('preview_recipe_url');
+  });
+
+  it('still refuses an internal address in read-only mode', async () => {
+    // The reason preview_recipe_url was gated is real — it makes Mealie fetch
+    // a caller-supplied URL — and the gate was the wrong place for it. This is
+    // the right one, and it does not depend on the mode.
+    const { text, isError } = await callText(
+      await connect({ readOnly: true }),
+      'preview_recipe_url',
+      { url: 'http://127.0.0.1:9000/recipe' }
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('loopback');
   });
 
   it('lists its tools without credentials but fails every call', async () => {

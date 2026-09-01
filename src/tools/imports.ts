@@ -27,10 +27,9 @@ const IMAGE_MIME_TYPES = {
   webp: 'image/webp',
 } as const;
 
-export function registerImportTools(
+export function registerImportReadTools(
   server: McpServer,
-  api: MealieApi,
-  config: Config
+  api: MealieApi
 ): void {
   server.registerTool(
     'preview_recipe_url',
@@ -57,7 +56,13 @@ export function registerImportTools(
         return untrustedResult(data);
       })
   );
+}
 
+export function registerImportTools(
+  server: McpServer,
+  api: MealieApi,
+  config: Config
+): void {
   server.registerTool(
     'import_recipe_from_url',
     {

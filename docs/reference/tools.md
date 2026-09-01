@@ -8,7 +8,7 @@ curated eight — see
 One section per tool: what it does, its parameters, and — for destructive tools —
 the two-step confirmation flow.
 
-52 tools in total. The 17 read tools are always registered; the 35 write and
+52 tools in total. The 18 read tools are always registered; the 34 write and
 import tools are omitted when `MEALIE_READ_ONLY=true`.
 
 ::: info Recipe references: slug or UUID

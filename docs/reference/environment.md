@@ -4,7 +4,7 @@
 | ------------------------ | -------- | ------- | ---------------------------------------------------------------------------------------- |
 | `MEALIE_URL`             | yes      | —       | Base URL of the Mealie instance, e.g. `https://mealie.example.com`                       |
 | `MEALIE_API_TOKEN`       | yes      | —       | API token from Settings → API Tokens; acts as the user who created it                    |
-| `MEALIE_READ_ONLY`       | no       | `false` | Exactly `true` registers only the 17 read tools                                          |
+| `MEALIE_READ_ONLY`       | no       | `false` | Exactly `true` registers only the 18 read tools                                          |
 | `MEALIE_ACCEPT_LANGUAGE` | no       | —       | Sent as `accept-language`, e.g. `de-DE`; localises unit and label names                  |
 | `MEALIE_INSECURE_TLS`    | no       | `false` | Exactly `true` accepts a self-signed certificate — scoped to this connection only        |
 
@@ -41,7 +41,7 @@ read, so child processes cannot pick it up out of `/proc/<pid>/environ`.
 
 ## `MEALIE_READ_ONLY`
 
-Exactly `true` registers only the 17 read tools; the 35 write and import tools
+Exactly `true` registers only the 18 read tools; the 34 write and import tools
 are not registered at all, so a model cannot call them and does not see them in
 the catalog.
 

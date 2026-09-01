@@ -51,7 +51,7 @@ published documentation, which is out of date in several places.
 | ------------------------ | -------- | ---------------------------------------------------------------------------------- |
 | `MEALIE_URL`             | yes      | Base URL, e.g. `https://mealie.example.com`                                        |
 | `MEALIE_API_TOKEN`       | yes      | Token from Settings → API Tokens. It acts as the user who created it.              |
-| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 17 read tools only                                    |
+| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 18 read tools only                                    |
 | `MEALIE_ACCEPT_LANGUAGE` | no       | e.g. `de-DE`; localises unit and label names                                       |
 | `MEALIE_INSECURE_TLS`    | no       | Exactly `true` accepts a self-signed certificate, scoped to this connection        |
 | `MEALIE_ALLOW_TOOLS`     | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |

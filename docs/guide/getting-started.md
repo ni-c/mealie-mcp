@@ -34,6 +34,6 @@ A good smoke test once the server is connected:
 ## Read-only mode
 
 Set `MEALIE_READ_ONLY=true` (exactly the string `true`) to register only the 17
-read tools. The 35 write and import tools are not registered at all — a model
+read tools. The 34 write and import tools are not registered at all — a model
 cannot call what does not exist. Check the startup line on stderr, which reports
 the mode in effect.

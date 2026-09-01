@@ -37,7 +37,10 @@ import type { Config } from './config.js';
 import { ConfirmationStore, createApproval } from 'mcp-approval';
 import { CurrentUser } from './lookup.js';
 import { registerEngagementWriteTools } from './tools/engagement.js';
-import { registerImportTools } from './tools/imports.js';
+import {
+  registerImportReadTools,
+  registerImportTools,
+} from './tools/imports.js';
 import { registerInfoTools } from './tools/info.js';
 
 function packageVersion(): string {
@@ -97,14 +100,19 @@ export function createServer(config: Config): McpServer {
   registerShoppingReadTools(server, api);
   registerCookbookReadTools(server, api);
   registerSharingReadTools(server, api, config);
+  // preview_recipe_url fetches a URL and reports what Mealie would extract,
+  // saving nothing — a read tool, and annotated as one. It used to sit with
+  // the import tools and disappear under MEALIE_READ_ONLY, which made the
+  // catalogue and the annotation contradict each other. The reason it was
+  // gated is real but belongs elsewhere: it makes Mealie fetch a
+  // caller-supplied URL, and that is refused for internal addresses by
+  // assertFetchableUrl in schema.ts, on every call, read-only or not.
+  registerImportReadTools(server, api);
 
   // Read-only mode does not register the write tools at all. Rejecting them at
   // call time would still advertise capabilities the server refuses to provide.
   if (!config.readOnly) {
     registerRecipeWriteTools(server, api, config, confirmations, approval);
-    // preview_recipe_url is a read tool by nature, but it sits with the import
-    // tools because it shares their schema and their risk: it makes the Mealie
-    // server fetch an arbitrary URL. In read-only mode none of them are offered.
     registerImportTools(server, api, config);
     registerOrganizerWriteTools(server, api, confirmations, approval);
     registerFoodWriteTools(server, api, confirmations, approval);
