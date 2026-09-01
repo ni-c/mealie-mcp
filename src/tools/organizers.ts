@@ -9,8 +9,8 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, run, textResult, untrustedResult } from '../result.js';
 import { listFrom, organizerSummary, paginationOf } from '../shape.js';
 
 /**
@@ -100,7 +100,8 @@ export function registerOrganizerReadTools(
 export function registerOrganizerWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_organizer',
@@ -161,20 +162,35 @@ export function registerOrganizerWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ kind, id, confirm_token }) =>
+    async ({ kind, id, confirm_token }, mcp) =>
       run(async () => {
         const spec = KINDS[kind as Kind];
         const key = `delete_organizer:${kind}:${id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the ${spec.label} with id ${id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              spec.consequence
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the ${spec.label} with id ${id}`,
+            consequence: spec.consequence,
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_organizer',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_organizer did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`${spec.path}/${id}`);
         return textResult(`Deleted the ${spec.label} with id ${id}.`);
       })

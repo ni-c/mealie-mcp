@@ -2,9 +2,15 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { assertPathSegment, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe, type CurrentUser } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
+import {
+  errorResult,
+  run,
+  textResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
 import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
 import { commentSummary, timelineEvent } from '../shape.js';
 
@@ -12,7 +18,8 @@ export function registerEngagementWriteTools(
   server: McpServer,
   api: MealieApi,
   currentUser: CurrentUser,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'set_recipe_rating',
@@ -95,18 +102,35 @@ export function registerEngagementWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ comment_id, confirm_token }) =>
+    async ({ comment_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_recipe_comment:${comment_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the comment with id ${comment_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the comment with id ${comment_id}`,
+            consequence:
+              'The comment is gone for good; Mealie keeps no history of it.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_recipe_comment',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_recipe_comment did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/comments/${comment_id}`);
         return textResult(`Deleted the comment with id ${comment_id}.`);
       })

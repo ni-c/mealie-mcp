@@ -14,8 +14,8 @@ import {
 } from '../shape.js';
 
 import { assertPathSegment, query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, run, textResult, untrustedResult } from '../result.js';
 
 export function registerCookbookReadTools(
   server: McpServer,
@@ -85,7 +85,8 @@ export function registerCookbookReadTools(
 export function registerCookbookWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_cookbook',
@@ -144,19 +145,33 @@ export function registerCookbookWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ cookbook_id, confirm_token }) =>
+    async ({ cookbook_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_cookbook:${cookbook_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the cookbook with id ${cookbook_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              'The recipes it matched are kept; only the saved view is deleted.'
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the cookbook with id ${cookbook_id}`,
+            consequence:
+              'The recipes it matched are kept; only the saved view is deleted.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_cookbook',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. delete_cookbook did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/cookbooks/${cookbook_id}`);
         return textResult(`Deleted the cookbook with id ${cookbook_id}.`);
       })

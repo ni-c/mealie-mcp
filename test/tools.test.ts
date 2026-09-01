@@ -39,16 +39,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function connect(overrides: Partial<Config> = {}): Promise<Client> {
+/** How a client that can show a dialog answers it. */
+type ElicitBehaviour = 'accept' | 'decline' | 'cancel';
+
+/**
+ * Connects a client to the real server.
+ *
+ * Without `elicit` the client declares no elicitation capability, which is the
+ * case the two-call token exists for and what every other test here drives.
+ * With it, the client answers the dialog and `prompts` records what the server
+ * put in front of the user.
+ */
+async function connect(
+  overrides: Partial<Config> = {},
+  elicit?: ElicitBehaviour
+): Promise<Client & { prompts: string[] }> {
   const server = createServer({ ...config, ...overrides });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '0.0.0' });
+  const prompts: string[] = [];
+  const client = new Client(
+    { name: 'test', version: '0.0.0' },
+    elicit === undefined ? {} : { capabilities: { elicitation: {} } }
+  );
+  if (elicit !== undefined) {
+    client.setRequestHandler('elicitation/create', (request) => {
+      const params = request.params as { message?: string };
+      prompts.push(params.message ?? '');
+      if (elicit === 'cancel') return { action: 'cancel' };
+      if (elicit === 'decline') return { action: 'decline' };
+      return { action: 'accept', content: { confirm: true } };
+    });
+  }
   await Promise.all([
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
-  return client;
+  return Object.assign(client, { prompts });
 }
 
 interface Call {
@@ -692,7 +719,7 @@ describe('confirmation flow', () => {
     const first = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
     });
-    expect(first.text).toContain('irreversible');
+    expect(first.text).toContain('no undelete');
     // Nothing but the lookup so far.
     expect(callsOf(spy).every((c) => c.method === 'GET')).toBe(true);
 
@@ -715,24 +742,30 @@ describe('confirmation flow', () => {
     expect(text).toContain(GENERIC.id);
   });
 
-  it('re-prompts on a wrong token and invalidates the old one', async () => {
+  it('refuses a wrong token and leaves the outstanding one alone', async () => {
+    const spy = mockFetch();
     const client = await connect();
-    mockFetch();
     const first = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
     });
-    const stale = tokenOf(first.text);
+    const issued = tokenOf(first.text);
     const rejected = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
       confirm_token: 'deadbeef',
     });
-    expect(rejected.text).toContain('confirm_token=');
-    // The rejected attempt re-issued, so the first token no longer works.
-    const replayed = await callText(client, 'delete_recipe', {
+    expect(rejected.text).toContain('invalid, expired');
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+
+    // Deliberately different from before: a wrong guess no longer voids the
+    // token the user was legitimately given. Voiding it let anyone who could
+    // reach the tool cancel a pending confirmation by sending rubbish, which
+    // protected nothing.
+    const proper = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
-      confirm_token: stale,
+      confirm_token: issued,
     });
-    expect(replayed.text).toContain('confirm_token=');
+    expect(proper.isError).toBe(false);
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(true);
   });
 
   it('binds a set operation to the sorted id set', async () => {
@@ -750,7 +783,10 @@ describe('confirmation flow', () => {
       item_ids: ids,
       confirm_token: tokenOf(first.text),
     });
-    expect(widened.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(widened.text).toContain('invalid, expired');
     expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
   });
 
@@ -785,7 +821,10 @@ describe('confirmation flow', () => {
       to_id: a,
       confirm_token: tokenOf(first.text),
     });
-    expect(reversed.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(reversed.text).toContain('invalid, expired');
     await callText(client, 'merge_foods', {
       from_id: a,
       to_id: b,
@@ -831,7 +870,143 @@ describe('confirmation flow', () => {
       recipe: 'quark-bowl',
       confirm_token: tokenOf(first.text),
     });
-    expect(forever.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(forever.text).toContain('invalid, expired');
+  });
+});
+
+/**
+ * The point of the approval path: a client that can put a question in front of a
+ * person gets asked, instead of a token that only proves the same call was made
+ * twice. Every other test in this file drives the token path, and would pass
+ * just as well against a server that silently never asks — so the control below
+ * ("a capable client is not offered a token") is the one that has to fail if the
+ * wiring is undone.
+ */
+describe('approval through the client', () => {
+  const GUARDED: [string, Record<string, unknown>, string][] = [
+    ['delete_recipe', { recipe: 'quark-bowl' }, 'DELETE'],
+    [
+      'delete_shopping_list',
+      { list_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'delete_recipe_comment',
+      { comment_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'merge_foods',
+      {
+        from_id: '33333333-3333-4333-8333-333333333333',
+        to_id: '44444444-4444-4444-8444-444444444444',
+      },
+      'PUT',
+    ],
+    [
+      'delete_cookbook',
+      { cookbook_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    ['delete_mealplan_entry', { entry_id: 4242 }, 'DELETE'],
+    [
+      'delete_organizer',
+      { kind: 'tag', id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'delete_shopping_list_items',
+      { item_ids: ['22222222-2222-4222-8222-222222222222'] },
+      'DELETE',
+    ],
+    ['create_share_token', { recipe: 'quark-bowl' }, 'POST'],
+  ];
+
+  it.each(GUARDED)(
+    '%s asks the user, and goes ahead once they accept',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect({}, 'accept');
+      const { isError } = await callText(client, name, args);
+      expect(client.prompts).toHaveLength(1);
+      expect(isError).toBe(false);
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(true);
+    }
+  );
+
+  it.each(GUARDED)(
+    '%s does nothing when declined',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect({}, 'decline');
+      const { text, isError } = await callText(client, name, args);
+      expect(isError).toBe(true);
+      expect(text).toContain('declined');
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(false);
+    }
+  );
+
+  it.each(GUARDED)(
+    '%s refuses a token it never issued',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect();
+      const { text, isError } = await callText(client, name, {
+        ...args,
+        confirm_token: 'deadbeefdeadbeefdeadbeefdeadbeef',
+      });
+      expect(isError).toBe(true);
+      expect(text).toContain('invalid, expired');
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(false);
+    }
+  );
+
+  it('does not offer a token to a client that can be asked', async () => {
+    // The control. Restore the token-only branch and this is the test that
+    // fails: the others would still pass, because accepting a dialog and
+    // quoting a token back are indistinguishable from the outside.
+    const client = await connect({}, 'accept');
+    mockFetch();
+    const { text } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(text).not.toContain('confirm_token=');
+    expect(client.prompts[0]).toContain('no undelete');
+  });
+
+  it('does nothing when the user declines, and says so', async () => {
+    const spy = mockFetch();
+    const client = await connect({}, 'decline');
+    const { text, isError } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(isError).toBe(true);
+    expect(text).toContain('declined');
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('does nothing when the dialog is cancelled', async () => {
+    const spy = mockFetch();
+    const client = await connect({}, 'cancel');
+    const { isError } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(isError).toBe(true);
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('still hands a token to a client that cannot ask anyone', async () => {
+    // The fallback is not a leftover: it is the only gate a client without
+    // elicitation has, and it must keep working unchanged.
+    const client = await connect();
+    mockFetch();
+    const { text } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(text).toContain('confirm_token=');
   });
 });
 

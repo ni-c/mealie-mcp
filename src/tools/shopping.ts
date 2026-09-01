@@ -1,10 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
-import {
-  confirmationPrompt,
-  setResourceKey,
-  type ConfirmationStore,
-} from '../confirm.js';
+import { setResourceKey } from 'mcp-approval';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import {
   confirmTokenParam,
   pageParam,
@@ -21,7 +18,13 @@ import {
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import { resolveRecipe } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
+import {
+  errorResult,
+  run,
+  textResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
 
 const listIdParam = uuidParam.describe(
   'Shopping list UUID, from list_shopping_lists'
@@ -92,7 +95,8 @@ export function registerShoppingReadTools(
 export function registerShoppingWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_shopping_list',
@@ -122,18 +126,36 @@ export function registerShoppingWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ list_id, confirm_token }) =>
+    async ({ list_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_shopping_list:${list_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the shopping list with id ${list_id} and every item on it`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the shopping list with id ${list_id} and every item on it`,
+            consequence:
+              'The list and its items cannot be restored. Recipes and meal plans ' +
+              'that fed it are untouched.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_shopping_list',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_shopping_list did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/shopping/lists/${list_id}`);
         return textResult(`Deleted the shopping list with id ${list_id}.`);
       })
@@ -284,21 +306,39 @@ export function registerShoppingWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ item_ids, confirm_token }) =>
+    async ({ item_ids, confirm_token }, mcp) =>
       run(async () => {
         // Bound to a fingerprint of the sorted id set: a confirmation for three
         // items must not be usable to delete a fourth that the model appended
         // between the two calls.
         const key = setResourceKey('delete_shopping_list_items', item_ids);
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `permanently remove ${item_ids.length} item(s) from their shopping list`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `permanently remove ${item_ids.length} item(s) from their shopping list`,
+            consequence:
+              'The items are removed from the list for good. Ticking an item off ' +
+              'with update_shopping_list_items keeps it and is reversible.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_shopping_list_items',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_shopping_list_items did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         // The ids go in the query string; this endpoint takes no body.
         await api.delete(
           `/api/households/shopping/items${query({ ids: item_ids })}`

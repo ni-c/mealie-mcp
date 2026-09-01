@@ -3,9 +3,9 @@ import type { McpServer } from '@modelcontextprotocol/server';
 
 import { query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import { errorResult, run, textResult, untrustedResult } from '../result.js';
 import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
 import { listFrom, shareToken, shareUrl } from '../shape.js';
 
@@ -54,7 +54,8 @@ export function registerSharingWriteTools(
   server: McpServer,
   api: MealieApi,
   config: Config,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_share_token',
@@ -82,27 +83,43 @@ export function registerSharingWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    async ({ recipe, expires_at, confirm_token }) =>
+    async ({ recipe, expires_at, confirm_token }, mcp) =>
       run(async () => {
         const { id } = await resolveRecipe(api, recipe);
         // Guarded like a destructive operation even though it destroys nothing:
         // this is the one tool that widens who can see the data, and unlike a
         // deletion the effect is invisible until someone uses the link.
         const key = `create_share_token:${id}:${expires_at ?? 'never'}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `create a public link to the recipe with id ${id}, readable by anyone who has it, ${
-                expires_at === undefined
-                  ? 'with no expiry date'
-                  : `expiring ${expires_at}`
-              }`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              'This makes the recipe readable outside the instance until the link is deleted.'
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `create a public link to the recipe with id ${id}, readable by anyone who has it, ${
+              expires_at === undefined
+                ? 'with no expiry date'
+                : `expiring ${expires_at}`
+            }`,
+            consequence:
+              'This makes the recipe readable outside the instance until the link is deleted.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'create_share_token',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. create_share_token did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         const data = await api.post('/api/shared/recipes', {
           recipeId: id,
           ...(expires_at === undefined ? {} : { expiresAt: expires_at }),

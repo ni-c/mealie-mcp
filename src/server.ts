@@ -34,7 +34,7 @@ import {
 
 import { MealieApi } from './api.js';
 import type { Config } from './config.js';
-import { ConfirmationStore } from './confirm.js';
+import { ConfirmationStore, createApproval } from 'mcp-approval';
 import { CurrentUser } from './lookup.js';
 import { registerEngagementWriteTools } from './tools/engagement.js';
 import { registerImportTools } from './tools/imports.js';
@@ -75,6 +75,9 @@ export function createServer(config: Config): McpServer {
 
   const api = new MealieApi(config);
   const confirmations = new ConfirmationStore();
+  // One approver per server: it holds the key that seals the request state
+  // carried out through the client and back.
+  const approval = createApproval({ server: 'mealie-mcp' });
   const currentUser = new CurrentUser(api);
 
   const server = new McpServer({
@@ -98,18 +101,24 @@ export function createServer(config: Config): McpServer {
   // Read-only mode does not register the write tools at all. Rejecting them at
   // call time would still advertise capabilities the server refuses to provide.
   if (!config.readOnly) {
-    registerRecipeWriteTools(server, api, config, confirmations);
+    registerRecipeWriteTools(server, api, config, confirmations, approval);
     // preview_recipe_url is a read tool by nature, but it sits with the import
     // tools because it shares their schema and their risk: it makes the Mealie
     // server fetch an arbitrary URL. In read-only mode none of them are offered.
     registerImportTools(server, api, config);
-    registerOrganizerWriteTools(server, api, confirmations);
-    registerFoodWriteTools(server, api, confirmations);
-    registerMealplanWriteTools(server, api, confirmations);
-    registerShoppingWriteTools(server, api, confirmations);
-    registerCookbookWriteTools(server, api, confirmations);
-    registerSharingWriteTools(server, api, config, confirmations);
-    registerEngagementWriteTools(server, api, currentUser, confirmations);
+    registerOrganizerWriteTools(server, api, confirmations, approval);
+    registerFoodWriteTools(server, api, confirmations, approval);
+    registerMealplanWriteTools(server, api, confirmations, approval);
+    registerShoppingWriteTools(server, api, confirmations, approval);
+    registerCookbookWriteTools(server, api, confirmations, approval);
+    registerSharingWriteTools(server, api, config, confirmations, approval);
+    registerEngagementWriteTools(
+      server,
+      api,
+      currentUser,
+      confirmations,
+      approval
+    );
   }
 
   return server;

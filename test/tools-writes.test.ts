@@ -159,7 +159,10 @@ describe('organizer writes', () => {
       id: TAG_ID,
       confirm_token: tokenOf(first.text),
     });
-    expect(crossed.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(crossed.text).toContain('invalid, expired');
     expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
   });
 });

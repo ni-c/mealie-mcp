@@ -9,8 +9,8 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, run, untrustedResult } from '../result.js';
 import { foodSummary, listFrom, paginationOf, unitSummary } from '../shape.js';
 
 export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
@@ -122,7 +122,8 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
 export function registerFoodWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_food',
@@ -199,8 +200,8 @@ export function registerFoodWriteTools(
       })
   );
 
-  registerMerge(server, api, confirmations, 'food');
-  registerMerge(server, api, confirmations, 'unit');
+  registerMerge(server, api, confirmations, approval, 'food');
+  registerMerge(server, api, confirmations, approval, 'unit');
 }
 
 /**
@@ -213,6 +214,7 @@ function registerMerge(
   server: McpServer,
   api: MealieApi,
   confirmations: ConfirmationStore,
+  approval: Approver,
   kind: 'food' | 'unit'
 ): void {
   const plural = kind === 'food' ? 'foods' : 'units';
@@ -235,20 +237,33 @@ function registerMerge(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ from_id, to_id, confirm_token }) =>
+    async ({ from_id, to_id, confirm_token }, mcp) =>
       run(async () => {
         // Not setResourceKey's sorted fingerprint: the order IS the meaning here.
         const key = `merge_${plural}:${from_id}->${to_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `merge the ${kind} ${from_id} into ${to_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              `The ${kind} ${from_id} is deleted and every reference to it is rewritten. This cannot be undone.`
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `merge the ${kind} ${from_id} into ${to_id}`,
+            consequence: `The ${kind} ${from_id} is deleted and every reference to it is rewritten. This cannot be undone.`,
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'create_unit',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. create_unit did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         const body =
           kind === 'food'
             ? { fromFood: from_id, toFood: to_id }

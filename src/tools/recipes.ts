@@ -20,9 +20,15 @@ import {
 
 import { assertPathSegment, query, type MealieApi } from '../api.js';
 import type { Config } from '../config.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveOrganizers, resolveRecipe } from '../lookup.js';
-import { textResult, run, ToolInputError, untrustedResult } from '../result.js';
+import {
+  errorResult,
+  run,
+  textResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
 
 const nameListParam = (what: string) =>
   z
@@ -345,7 +351,8 @@ export function registerRecipeWriteTools(
   server: McpServer,
   api: MealieApi,
   config: Config,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_recipe',
@@ -517,21 +524,37 @@ export function registerRecipeWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ recipe, confirm_token }) =>
+    async ({ recipe, confirm_token }, mcp) =>
       run(async () => {
         const { id, slug } = await resolveRecipe(api, recipe);
         // Keyed by the resolved UUID, so a token issued for a slug cannot be
         // replayed against a different recipe that has since taken that slug.
         const key = `delete_recipe:${id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `permanently delete the recipe with id ${id}, including its comments, timeline and images`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `permanently delete the recipe with id ${id}, including its comments, timeline and images`,
+            consequence:
+              'Mealie has no undelete. Cookbooks, meal plans and shopping lists ' +
+              'that reference the recipe lose it.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_recipe',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. delete_recipe did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/recipes/${assertPathSegment(slug, 'recipe')}`);
         return textResult(`Deleted the recipe with id ${id}.`);
       })

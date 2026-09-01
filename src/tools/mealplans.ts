@@ -9,9 +9,15 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
+import {
+  errorResult,
+  run,
+  textResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
 import { listFrom, mealplanEntry, paginationOf } from '../shape.js';
 
 const ENTRY_TYPES = [
@@ -111,7 +117,8 @@ export function registerMealplanReadTools(
 export function registerMealplanWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_mealplan_entry',
@@ -241,19 +248,35 @@ export function registerMealplanWriteTools(
       }),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    async ({ entry_id, confirm_token }) =>
+    async ({ entry_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_mealplan_entry:${entry_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `remove meal plan entry ${entry_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              'The recipe itself is kept; only the plan entry is deleted.'
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `remove meal plan entry ${entry_id}`,
+            consequence:
+              'The recipe itself is kept; only the plan entry is deleted.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_mealplan_entry',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_mealplan_entry did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/mealplans/${entry_id}`);
         return textResult(`Removed meal plan entry ${entry_id}.`);
       })
