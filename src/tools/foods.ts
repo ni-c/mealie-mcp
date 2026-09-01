@@ -251,7 +251,7 @@ function registerMerge(
             consequence: `The ${kind} ${from_id} is deleted and every reference to it is rewritten. This cannot be undone.`,
             resourceKey: key,
             token: confirm_token,
-            toolName: 'create_unit',
+            toolName: `merge_${plural}`,
             hint: 'Tick to go ahead, leave it to cancel.',
           }
         );
@@ -262,7 +262,7 @@ function registerMerge(
           return errorResult(outcome.reason);
         }
         if (outcome.decision === 'declined') {
-          return errorResult(`The user declined. create_unit did nothing.`);
+          return errorResult(`The user declined. merge_${plural} did nothing.`);
         }
         if (outcome.decision === 'pending') return outcome.result;
         const body =

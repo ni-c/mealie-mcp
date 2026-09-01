@@ -231,6 +231,27 @@ describe('food and unit writes', () => {
     expect(first.text).toContain(`${TAG_ID} is deleted`);
     expect(first.text).toContain('cannot be undone');
   });
+
+  it('sends the caller back to the tool they actually called', async () => {
+    // Both merge tools come out of one factory, and the factory named the tool
+    // `create_unit` — a real, unrelated tool of this server. The fallback
+    // instruction and the declined sentence are the two places the library
+    // prints that name, so a caller was being pointed at something else
+    // entirely, and something that creates rather than merges.
+    mockFetch();
+    for (const [tool, plural] of [
+      ['merge_foods', 'foods'],
+      ['merge_units', 'units'],
+    ] as const) {
+      const first = await callText(await connect(), tool, {
+        from_id: TAG_ID,
+        to_id: OTHER_ID,
+      });
+      expect(first.text, tool).toContain(tool);
+      expect(first.text, tool).toContain(plural);
+      expect(first.text, tool).not.toContain('create_unit');
+    }
+  });
 });
 
 describe('meal plan writes', () => {
