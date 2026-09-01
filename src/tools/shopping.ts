@@ -17,6 +17,7 @@ import {
 } from '../shape.js';
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import { resolveRecipe } from '../lookup.js';
 import {
   errorResult,
@@ -41,7 +42,7 @@ export function registerShoppingReadTools(
       description:
         'Lists the shopping lists of the household, without their items.',
       inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -71,7 +72,7 @@ export function registerShoppingReadTools(
           .optional()
           .describe('Include items already ticked off, default true'),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ list_id, include_checked }) =>
       run(async () => {
@@ -104,7 +105,7 @@ export function registerShoppingWriteTools(
       title: 'Create shopping list',
       description: 'Creates an empty shopping list in the household.',
       inputSchema: z.object({ name: z.string().trim().min(1).max(255) }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ name }) =>
       run(async () => {
@@ -124,7 +125,7 @@ export function registerShoppingWriteTools(
         list_id: listIdParam,
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ list_id, confirm_token }, mcp) =>
       run(async () => {
@@ -177,7 +178,7 @@ export function registerShoppingWriteTools(
           .max(100)
           .describe('The lines to add, one item each'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ list_id, items }) =>
       run(async () => {
@@ -233,7 +234,7 @@ export function registerShoppingWriteTools(
           .optional()
           .describe('Replace the text of every listed item'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ list_id, item_ids, checked, quantity, note }) =>
       run(async () => {
@@ -304,7 +305,7 @@ export function registerShoppingWriteTools(
           .describe('Item UUIDs from get_shopping_list'),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ item_ids, confirm_token }, mcp) =>
       run(async () => {
@@ -366,7 +367,7 @@ export function registerShoppingWriteTools(
           .optional()
           .describe('Scale the ingredient quantities, default 1'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {
@@ -400,7 +401,7 @@ export function registerShoppingWriteTools(
           .optional()
           .describe('How much of the recipe to remove, default 1'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {

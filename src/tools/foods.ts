@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, run, untrustedResult } from '../result.js';
 import { foodSummary, listFrom, paginationOf, unitSummary } from '../shape.js';
@@ -29,7 +30,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -62,7 +63,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -106,7 +107,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
               'because it sends every line to an external provider.'
           ),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ ingredients, parser }) =>
       run(async () => {
@@ -140,7 +141,7 @@ export function registerFoodWriteTools(
           .optional()
           .describe('Shopping-list label to file this food under'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ name, plural_name, description, label_id }) =>
       run(async () => {
@@ -175,7 +176,7 @@ export function registerFoodWriteTools(
           ),
         description: z.string().max(2000).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({
       name,
@@ -235,7 +236,7 @@ function registerMerge(
         ),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ from_id, to_id, confirm_token }, mcp) =>
       run(async () => {

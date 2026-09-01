@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, run, textResult, untrustedResult } from '../result.js';
 import { listFrom, organizerSummary, paginationOf } from '../shape.js';
@@ -74,7 +75,7 @@ export function registerOrganizerReadTools(
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ kind, search, page, per_page, order_direction }) =>
       run(async () => {
@@ -115,7 +116,7 @@ export function registerOrganizerWriteTools(
         kind: kindParam,
         name: z.string().trim().min(1).max(255),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ kind, name }) =>
       run(async () => {
@@ -137,7 +138,7 @@ export function registerOrganizerWriteTools(
         id: uuidParam.describe('UUID from list_organizers'),
         name: z.string().trim().min(1).max(255).describe('The new name'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ kind, id, name }) =>
       run(async () => {
@@ -160,7 +161,7 @@ export function registerOrganizerWriteTools(
         id: uuidParam.describe('UUID from list_organizers'),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ kind, id, confirm_token }, mcp) =>
       run(async () => {

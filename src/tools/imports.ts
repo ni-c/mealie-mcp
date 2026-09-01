@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import { READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
 import { run, ToolInputError, untrustedResult } from '../result.js';
 import { assertFetchableUrl, httpUrl } from '../schema.js';
@@ -42,7 +43,7 @@ export function registerImportTools(
       inputSchema: z.object({
         url: httpUrl.describe('Address of the recipe page to test'),
       }),
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { ...READ_ONLY, openWorldHint: true },
     },
     async ({ url }) =>
       run(async () => {
@@ -74,11 +75,7 @@ export function registerImportTools(
           .describe("Adopt the page's keywords as tags, default false"),
         include_categories: z.boolean().optional(),
       }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        openWorldHint: true,
-      },
+      annotations: { ...WRITE, openWorldHint: true },
     },
     async ({ url, include_tags, include_categories }) =>
       run(async () => {
@@ -114,7 +111,7 @@ export function registerImportTools(
           .max(MAX_HTML_CHARS)
           .describe('The page HTML, or a schema.org Recipe JSON document'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ data }) =>
       run(async () => {
@@ -157,11 +154,7 @@ export function registerImportTools(
             'Translate the extracted recipe into this language, e.g. "de" or "German"'
           ),
       }),
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        openWorldHint: true,
-      },
+      annotations: { ...WRITE, openWorldHint: true },
     },
     async ({ image_base64, format, translate_language }) =>
       run(async () => {

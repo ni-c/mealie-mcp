@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
@@ -27,7 +28,7 @@ export function registerSharingReadTools(
           .optional()
           .describe('Restrict the result to one recipe'),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ recipe }) =>
       run(async () => {
@@ -81,7 +82,7 @@ export function registerSharingWriteTools(
           ),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, expires_at, confirm_token }, mcp) =>
       run(async () => {
@@ -144,7 +145,7 @@ export function registerSharingWriteTools(
           'Share token UUID, from list_share_tokens'
         ),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ token_id }) =>
       run(async () => {

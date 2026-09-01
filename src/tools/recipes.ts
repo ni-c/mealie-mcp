@@ -19,6 +19,7 @@ import {
 } from '../shape.js';
 
 import { assertPathSegment, query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveOrganizers, resolveRecipe } from '../lookup.js';
@@ -96,7 +97,7 @@ export function registerRecipeReadTools(
         page: pageParam,
         per_page: perPageParam(25),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({
       search,
@@ -157,7 +158,7 @@ export function registerRecipeReadTools(
               'untouched object including settings, assets, extras and inline comments'
           ),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ recipe, detail }) =>
       run(async () => {
@@ -209,7 +210,7 @@ export function registerRecipeReadTools(
           .optional()
           .describe('Number of suggestions, default 10'),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ foods, tools, max_missing_foods, max_missing_tools, limit }) =>
       run(async () => {
@@ -237,7 +238,7 @@ export function registerRecipeReadTools(
       description:
         'Lists the comments other users of the instance left on a recipe.',
       inputSchema: z.object({ recipe: recipeRefParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ recipe }) =>
       run(async () => {
@@ -265,7 +266,7 @@ export function registerRecipeReadTools(
         page: pageParam,
         per_page: perPageParam(50),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ recipe, page, per_page }) =>
       run(async () => {
@@ -372,7 +373,7 @@ export function registerRecipeWriteTools(
           ),
         ...recipeFields,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ name, ...fields }) =>
       run(async () => {
@@ -428,7 +429,7 @@ export function registerRecipeWriteTools(
         name: z.string().trim().min(1).max(255).optional(),
         ...recipeFields,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, ...fields }) =>
       run(async () => {
@@ -464,7 +465,7 @@ export function registerRecipeWriteTools(
           .optional()
           .describe('Name of the copy; Mealie appends a counter when omitted'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, name }) =>
       run(async () => {
@@ -496,7 +497,7 @@ export function registerRecipeWriteTools(
             'When it was made, e.g. 2026-08-18 or 2026-08-18T19:30:00Z'
           ),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, timestamp }) =>
       run(async () => {
@@ -522,7 +523,7 @@ export function registerRecipeWriteTools(
         recipe: recipeRefParam,
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ recipe, confirm_token }, mcp) =>
       run(async () => {

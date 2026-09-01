@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
 import type { MealieApi } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { jsonResult, run } from '../result.js';
 
 export function registerInfoTools(server: McpServer, api: MealieApi): void {
@@ -14,7 +15,7 @@ export function registerInfoTools(server: McpServer, api: MealieApi): void {
         'group, household and the permission flags that decide which write tools ' +
         'will actually succeed. Start here when a call fails with a 403.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () => {

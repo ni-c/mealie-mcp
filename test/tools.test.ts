@@ -174,6 +174,48 @@ describe('tool registration', () => {
     // The import tools reach outside the instance.
     expect(byName.get('import_recipe_from_url')?.openWorldHint).toBe(true);
   });
+
+  it('declares all four annotation hints on every tool', async () => {
+    // Not a style rule. Two of the four default to a *stronger* claim than
+    // silence suggests: the specification gives destructiveHint and
+    // openWorldHint a default of true. This repository stated the first two on
+    // all fifty-two tools and left the other two to chance, so forty-nine of
+    // them were claiming an open world while talking to one configured Mealie.
+    const { tools } = await (await connect()).listTools();
+    const hints = [
+      'readOnlyHint',
+      'destructiveHint',
+      'idempotentHint',
+      'openWorldHint',
+    ] as const;
+    for (const tool of tools) {
+      for (const hint of hints) {
+        expect(typeof tool.annotations?.[hint], `${tool.name}.${hint}`).toBe(
+          'boolean'
+        );
+      }
+    }
+  });
+
+  it('opens the world only where Mealie talks to somebody else', async () => {
+    // Two situations, both counting: the caller names the address
+    // (import_recipe_from_url, preview_recipe_url — the boundary the SSRF
+    // guard watches), or the operator did (import_recipe_from_image goes to
+    // the configured AI provider). import_recipe_from_html_or_json takes the
+    // content directly and reaches nothing — the distinction that used to be
+    // invisible, because the other forty-nine tools inherited `true` anyway.
+    const reaching = [
+      'import_recipe_from_url',
+      'preview_recipe_url',
+      'import_recipe_from_image',
+    ];
+    const { tools } = await (await connect()).listTools();
+    for (const tool of tools) {
+      expect(tool.annotations?.openWorldHint, tool.name).toBe(
+        reaching.includes(tool.name)
+      );
+    }
+  });
 });
 
 describe('read tools', () => {

@@ -14,6 +14,7 @@ import {
 } from '../shape.js';
 
 import { assertPathSegment, query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, run, textResult, untrustedResult } from '../result.js';
 
@@ -29,7 +30,7 @@ export function registerCookbookReadTools(
         'Lists the cookbooks of the household. A cookbook is a saved filter over ' +
         'the recipe collection, not a fixed set of recipes.',
       inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -62,7 +63,7 @@ export function registerCookbookReadTools(
           .describe('Cookbook slug or UUID, from list_cookbooks'),
         per_page: perPageParam(50),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ cookbook, per_page }) =>
       run(async () => {
@@ -115,7 +116,7 @@ export function registerCookbookWriteTools(
             'Make the cookbook readable without a login, default false'
           ),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ name, description, query_filter, is_public }) =>
       run(async () => {
@@ -143,7 +144,7 @@ export function registerCookbookWriteTools(
         cookbook_id: uuidParam.describe('Cookbook UUID, from list_cookbooks'),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ cookbook_id, confirm_token }, mcp) =>
       run(async () => {

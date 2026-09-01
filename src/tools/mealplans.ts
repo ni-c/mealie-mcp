@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
 import {
@@ -62,7 +63,7 @@ export function registerMealplanReadTools(
         page: pageParam,
         per_page: perPageParam(50),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ start_date, end_date, page, per_page }) =>
       run(async () => {
@@ -100,7 +101,7 @@ export function registerMealplanReadTools(
         'Returns the recipes planned for today, as Mealie computes "today" for ' +
         'the household. Answers with a bare list, not a paginated envelope.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () => {
@@ -147,7 +148,7 @@ export function registerMealplanWriteTools(
           .optional()
           .describe('Additional note shown under the title'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ date, entry_type, recipe, title, text }) =>
       run(async () => {
@@ -182,7 +183,7 @@ export function registerMealplanWriteTools(
         date: dateParam.describe('Day of the meal, YYYY-MM-DD'),
         entry_type: entryTypeParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ date, entry_type }) =>
       run(async () => {
@@ -208,7 +209,7 @@ export function registerMealplanWriteTools(
         title: z.string().trim().min(1).max(255).optional(),
         text: z.string().max(2000).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ entry_id, date, entry_type, recipe, title, text }) =>
       run(async () => {
@@ -246,7 +247,7 @@ export function registerMealplanWriteTools(
         entry_id: entryIdParam,
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ entry_id, confirm_token }, mcp) =>
       run(async () => {

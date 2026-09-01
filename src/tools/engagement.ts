@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { assertPathSegment, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe, type CurrentUser } from '../lookup.js';
 import {
@@ -38,7 +39,7 @@ export function registerEngagementWriteTools(
           .describe('Stars from 0 to 5; 0 clears the rating'),
         is_favorite: z.boolean().optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, rating, is_favorite }) =>
       run(async () => {
@@ -74,7 +75,7 @@ export function registerEngagementWriteTools(
         recipe: recipeRefParam,
         text: z.string().trim().min(1).max(10_000),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, text }) =>
       run(async () => {
@@ -100,7 +101,7 @@ export function registerEngagementWriteTools(
         ),
         confirm_token: confirmTokenParam,
       }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: DESTRUCTIVE,
     },
     async ({ comment_id, confirm_token }, mcp) =>
       run(async () => {
@@ -163,7 +164,7 @@ export function registerEngagementWriteTools(
           .optional()
           .describe('When it happened; defaults to now'),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: WRITE,
     },
     async ({ recipe, subject, message, timestamp }) =>
       run(async () => {
