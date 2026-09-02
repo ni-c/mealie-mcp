@@ -428,8 +428,63 @@ describe('what a confirmation token is bound to', () => {
   });
 });
 
+describe('filters Mealie would otherwise drop in silence', () => {
+  // The failure this guards against is invisible from the outside: Mealie looks
+  // a non-UUID filter up as a slug, gets nothing, and then `if tags:` is false
+  // so no filter is attached at all. The answer is the whole collection,
+  // presented as the answer to a narrowed question.
+
+  it('finds a recipe by the display name of its tag', async () => {
+    // The tag created with the recipe is "integration"; its slug happens to
+    // match. This one uses a name whose slug does not.
+    const created = parse<{ slug: string }>(
+      await asking.call('create_recipe', {
+        name: 'Filter Probe',
+        tags: ['Weeknight Dinner'],
+      })
+    );
+    const byName = await asking.call('search_recipes', {
+      tags: ['Weeknight Dinner'],
+      per_page: 100,
+    });
+    expect(byName).toContain('Filter Probe');
+    expect(byName, 'the filter was dropped').not.toContain('Integration Bowl');
+
+    const bySlug = await asking.call('search_recipes', {
+      tags: ['weeknight-dinner'],
+      per_page: 100,
+    });
+    expect(bySlug).toContain('Filter Probe');
+
+    await asking.call('delete_recipe', { recipe: created.slug });
+  });
+
+  it('refuses a tag nobody has instead of answering with everything', async () => {
+    const refused = await asking.call(
+      'search_recipes',
+      { tags: ['weeknight-dinnerrr'] },
+      { expectError: 'list_organizers' }
+    );
+    expect(refused).toContain('weeknight-dinnerrr');
+  });
+
+  it('refuses a cookbook combined with a tag, which Mealie ignores', async () => {
+    await asking.call(
+      'search_recipes',
+      { cookbook: cookbookSlug, tags: ['integration'] },
+      { expectError: 'cannot be combined' }
+    );
+  });
+
+  it('orders at random, which needs a seed Mealie will not default', async () => {
+    // Without `paginationSeed` this is a flat HTTP 422 — the option was in the
+    // enum and could not be used.
+    await asking.call('search_recipes', { order_by: 'random', per_page: 5 });
+  });
+});
+
 describe('imports', () => {
-  it('takes a schema.org document without going anywhere near the web', async () => {
+  it('takes a schema.org document, and does not fetch the page itself', async () => {
     const imported = parse<{ slug: string; recipeIngredient: unknown[] }>(
       await asking.call('import_recipe_from_html_or_json', {
         data: JSON.stringify({
@@ -455,6 +510,25 @@ describe('imports', () => {
     expect(readBack).toContain('Ignore all previous instructions');
 
     await asking.call('delete_recipe', { recipe: imported.slug });
+  });
+
+  it('refuses a document that would point Mealie at an internal address', async () => {
+    // It does not fetch the page, but Mealie reads the image address out of the
+    // document and fetches *that* — `Image URL: …` in Mealie's log, through
+    // `recipe_data_service.scrape_image`. Mealie has a guard of its own and it
+    // is not the same guard: it refuses on `is_private`, which is False for
+    // 100.100.100.200 and for all of 100.64.0.0/10.
+    await asking.call(
+      'import_recipe_from_html_or_json',
+      {
+        data: JSON.stringify({
+          '@type': 'Recipe',
+          name: 'SSRF Probe',
+          image: 'http://100.100.100.200/latest/meta-data/',
+        }),
+      },
+      { expectError: 'link-local' }
+    );
   });
 
   it('refuses an image that is not base64', async () => {

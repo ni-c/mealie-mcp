@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
+import { contentFingerprint } from '../fingerprint.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, run, textResult, untrustedResult } from '../result.js';
@@ -132,17 +133,56 @@ export function registerOrganizerWriteTools(
       title: 'Rename a tag, category or tool',
       description:
         'Renames a tag, category or tool. Mealie regenerates the slug from the ' +
-        'new name, so anything referring to the old slug stops matching.',
+        'new name, so anything referring to the old slug stops matching. ' +
+        'Requires confirmation: call once to receive a token, then again with ' +
+        'that token.',
       inputSchema: z.object({
         kind: kindParam,
         id: uuidParam.describe('UUID from list_organizers'),
         name: z.string().trim().min(1).max(255).describe('The new name'),
+        confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
     },
-    async ({ kind, id, name }) =>
+    async ({ kind, id, name, confirm_token }, mcp) =>
       run(async () => {
         const spec = KINDS[kind as Kind];
+        // The tool's own description is the argument for the guard: the rename
+        // takes the slug with it, and everything that referred to the old one —
+        // a cookbook's saved filter, a bookmark, a search someone wrote down —
+        // stops matching without any of them being touched or told.
+        const key = `update_organizer:${kind}:${id}:${contentFingerprint({ name })}`;
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `rename the ${spec.label} with id ${id}`,
+            consequence:
+              'Mealie regenerates the slug from the new name. Cookbook filters, ' +
+              'links and saved searches that refer to the old slug stop matching, ' +
+              'and the old name is not kept anywhere.',
+            // The new name is the caller's text, so it goes on its own labelled
+            // line rather than into the server's sentence above.
+            details: [{ label: 'New name', value: name }],
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'update_organizer',
+            hint: 'Tick to rename it, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. update_organizer did nothing.`
+          );
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         const data = await api.put(`${spec.path}/${id}`, { name });
         return untrustedResult({ kind, ...organizerSummary(data) });
       })

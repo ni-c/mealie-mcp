@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query, type MealieApi } from '../api.js';
+import { contentFingerprint, presentFields } from '../fingerprint.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
@@ -200,7 +201,10 @@ export function registerMealplanWriteTools(
     {
       title: 'Change a meal plan entry',
       description:
-        'Moves an entry to another day or slot, or replaces the recipe behind it.',
+        'Moves an entry to another day or slot, or replaces the recipe behind ' +
+        'it. Replacing the written title or note of an entry requires ' +
+        'confirmation: call once to receive a token, then again with that ' +
+        'token. Moving the entry or swapping the recipe does not.',
       inputSchema: z.object({
         entry_id: entryIdParam,
         date: dateParam.optional(),
@@ -208,11 +212,52 @@ export function registerMealplanWriteTools(
         recipe: recipeRefParam.optional(),
         title: z.string().trim().min(1).max(255).optional(),
         text: z.string().max(2000).optional(),
+        confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
     },
-    async ({ entry_id, date, entry_type, recipe, title, text }) =>
+    async (
+      { entry_id, date, entry_type, recipe, title, text, confirm_token },
+      mcp
+    ) =>
       run(async () => {
+        // A note entry carries text somebody typed and Mealie keeps no history
+        // of it; a day, a slot or a recipe reference is a setting, and the
+        // recipe it pointed at still exists afterwards. Only the first kind is
+        // guarded — the line `annotations.ts` draws, applied per call rather
+        // than per tool.
+        const replacing = presentFields({ title, text }, ['title', 'text']);
+        if (Object.keys(replacing).length > 0) {
+          const key = `update_mealplan_entry:${entry_id}:${contentFingerprint(replacing)}`;
+          const outcome = await approval.requestApproval(
+            server,
+            mcp,
+            confirmations,
+            {
+              what: `replace the ${Object.keys(replacing).sort().join(' and ')} of meal plan entry ${entry_id}`,
+              consequence:
+                'Mealie keeps no history of a plan entry. What is written there ' +
+                'now is gone once this is saved.',
+              resourceKey: key,
+              token: confirm_token,
+              toolName: 'update_mealplan_entry',
+              hint: 'Tick to go ahead, leave it to cancel.',
+            }
+          );
+          // A token that was sent and did not match is refused with the reason
+          // rather than answered with a fresh prompt; the sentence is the
+          // library's, so every server refuses in the same words.
+          if (outcome.decision === 'rejected') {
+            return errorResult(outcome.reason);
+          }
+          if (outcome.decision === 'declined') {
+            return errorResult(
+              `The user declined. update_mealplan_entry did nothing.`
+            );
+          }
+          if (outcome.decision === 'pending') return outcome.result;
+        }
+
         // Mealie's plan-entry route is a PUT over the whole entry, so the current
         // state is read first and the changes are merged onto it. Sending only the
         // changed fields would blank the rest.

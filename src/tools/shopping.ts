@@ -17,6 +17,7 @@ import {
 } from '../shape.js';
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import { contentFingerprint } from '../fingerprint.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import { resolveRecipe } from '../lookup.js';
 import {
@@ -209,7 +210,10 @@ export function registerShoppingWriteTools(
       title: 'Tick off or change shopping list items',
       description:
         'Changes items on a shopping list — most often ticking them off. Only ' +
-        'the given fields are changed; the rest of each item is preserved.',
+        'the given fields are changed; the rest of each item is preserved. ' +
+        'Ticking off and changing quantities is immediate; replacing the text ' +
+        'of the items with note requires confirmation, because that text is ' +
+        'overwritten on every item named and Mealie keeps no copy.',
       inputSchema: z.object({
         list_id: listIdParam,
         item_ids: z
@@ -233,10 +237,14 @@ export function registerShoppingWriteTools(
           .max(1000)
           .optional()
           .describe('Replace the text of every listed item'),
+        confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
     },
-    async ({ list_id, item_ids, checked, quantity, note }) =>
+    async (
+      { list_id, item_ids, checked, quantity, note, confirm_token },
+      mcp
+    ) =>
       run(async () => {
         if (
           checked === undefined &&
@@ -246,6 +254,47 @@ export function registerShoppingWriteTools(
           throw new ToolInputError(
             'Nothing to change: give at least one of checked, quantity or note.'
           );
+        }
+
+        // `note` is the only one of the three that destroys anything: it writes
+        // the same text over *every* item named, so one call with a hundred ids
+        // replaces a hundred lines somebody wrote. A tick and a quantity are a
+        // marker and a number, and gating those would train whoever answers the
+        // dialog to stop reading it.
+        if (note !== undefined) {
+          // The item set is fingerprinted by the library's own helper, so a
+          // confirmation for two items cannot execute against three; the note
+          // is fingerprinted alongside it, so it cannot be turned onto
+          // different text for the same items.
+          const key = `${setResourceKey('update_shopping_list_items', item_ids)}:${contentFingerprint({ note })}`;
+          const outcome = await approval.requestApproval(
+            server,
+            mcp,
+            confirmations,
+            {
+              what: `replace the text of ${item_ids.length} item(s) on the shopping list with id ${list_id}`,
+              consequence:
+                'Every item named gets the same new text. What each of them said ' +
+                'before is not kept anywhere.',
+              details: [{ label: 'New text', value: note }],
+              resourceKey: key,
+              token: confirm_token,
+              toolName: 'update_shopping_list_items',
+              hint: 'Tick to go ahead, leave it to cancel.',
+            }
+          );
+          // A token that was sent and did not match is refused with the reason
+          // rather than answered with a fresh prompt; the sentence is the
+          // library's, so every server refuses in the same words.
+          if (outcome.decision === 'rejected') {
+            return errorResult(outcome.reason);
+          }
+          if (outcome.decision === 'declined') {
+            return errorResult(
+              `The user declined. update_shopping_list_items did nothing.`
+            );
+          }
+          if (outcome.decision === 'pending') return outcome.result;
         }
 
         // Mealie's bulk update is a REPLACE, not a patch: every field missing from

@@ -18,20 +18,32 @@ afterEach(() => {
 });
 
 describe('organizer writes', () => {
-  it('renames through PUT on the kind-specific path', async () => {
+  it('renames through PUT on the kind-specific path, behind a confirmation', async () => {
     const spy = mockFetch();
-    await callText(await connect(), 'update_organizer', {
+    const result = await confirmed(await connect(), 'update_organizer', {
       kind: 'category',
       id: TAG_ID,
       name: 'Desserts',
     });
-    expect(callsOf(spy)[0]).toMatchObject({
-      method: 'PUT',
-      body: { name: 'Desserts' },
+    // The rename takes the slug with it, which is what the prompt has to say.
+    expect(result.prompt).toContain('regenerates the slug');
+    // The caller's new name is shown, but on its own labelled line rather than
+    // inside the server's own sentence.
+    expect(result.prompt).toContain('New name: Desserts');
+    const put = callsOf(spy).find((c) => c.method === 'PUT');
+    expect(put).toMatchObject({ method: 'PUT', body: { name: 'Desserts' } });
+    expect(put!.url).toContain(`/api/organizers/categories/${TAG_ID}`);
+  });
+
+  it('renames nothing until the rename is confirmed', async () => {
+    const spy = mockFetch();
+    const { text } = await callText(await connect(), 'update_organizer', {
+      kind: 'category',
+      id: TAG_ID,
+      name: 'Desserts',
     });
-    expect(callsOf(spy)[0]!.url).toContain(
-      `/api/organizers/categories/${TAG_ID}`
-    );
+    expect(text).toContain('confirm_token');
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('deletes each kind behind a confirmation', async () => {
@@ -253,20 +265,50 @@ describe('shopping and cookbook writes', () => {
     );
   });
 
-  it('creates a cookbook with its saved filter', async () => {
+  it('creates a public cookbook with its saved filter, behind a confirmation', async () => {
+    // This test used to call create_cookbook with is_public: true in one go and
+    // check only the request body, which wrote the missing gate down as the
+    // expected behaviour. Publishing is the one thing create_share_token is
+    // guarded for, and this is the other tool that does it.
     const spy = mockFetch();
-    await callText(await connect(), 'create_cookbook', {
+    const result = await confirmed(await connect(), 'create_cookbook', {
       name: 'Desserts',
       description: 'sweet things',
       query_filter: 'tags.name IN ["Dessert"]',
       is_public: true,
     });
+    expect(result.prompt).toContain('without logging in');
+    expect(result.prompt).toContain('Cookbook name: Desserts');
     expect(callsOf(spy)[0]!.body).toEqual({
       name: 'Desserts',
       description: 'sweet things',
       public: true,
       queryFilterString: 'tags.name IN ["Dessert"]',
     });
+  });
+
+  it('publishes nothing until the publishing is confirmed', async () => {
+    const spy = mockFetch();
+    const { text } = await callText(await connect(), 'create_cookbook', {
+      name: 'Desserts',
+      is_public: true,
+    });
+    expect(text).toContain('confirm_token');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('creates a private cookbook without asking anybody', async () => {
+    // The gate is on the publishing, not on the tool. A private cookbook is an
+    // ordinary write and stays one.
+    const spy = mockFetch();
+    const { text, isError } = await callText(
+      await connect(),
+      'create_cookbook',
+      { name: 'Desserts', query_filter: 'tags.name IN ["Dessert"]' }
+    );
+    expect(isError).toBe(false);
+    expect(text).not.toContain('confirm_token');
+    expect(callsOf(spy)[0]!.body).toMatchObject({ public: false });
   });
 
   it('defaults a cookbook to private and unfiltered', async () => {
