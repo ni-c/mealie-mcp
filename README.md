@@ -141,6 +141,22 @@ npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
 
 ## Tools
 
+Every tool declares an `outputSchema` and answers with `structuredContent`
+alongside the text block, so a client can use the result without parsing prose.
+Nine tools that answered with a sentence — _"Deleted the recipe with id …"_ —
+now answer with the fields as well.
+
+Most tools carry `untrusted: true` and `source: "mealie"` as fields: recipes are
+routinely scraped from arbitrary websites and comments come from other users of
+the instance. The ten without it answer with an id this server was given — or,
+for `get_about`, a version string and the permission flags of the account it
+authenticates as, which are facts the model should act on.
+
+Mealie's records are described as open objects with the top-level keys this
+server builds. A self-hosted Mealie is any release, and the SDK validates each
+result against its schema before it goes out — a strict shape would turn a field
+a release adds into a tool that fails outright.
+
 **Recipes** — `search_recipes`, `get_recipe`, `suggest_recipes`, `create_recipe`,
 `update_recipe`, `duplicate_recipe`, `set_recipe_last_made`, `delete_recipe` 🔒
 

@@ -97,7 +97,10 @@ describe('the destructive line and the guard follow each other', () => {
       const { text, isError } = await callText(client, name, args);
       const written = callsOf(spy).filter((call) => call.method !== 'GET');
       expect(written, `${name} wrote before asking`).toEqual([]);
-      expect(isError, name).toBe(false);
+      // The prompt is an error result: what was asked for did not happen, and
+      // a tool that declares an `outputSchema` may not answer without
+      // `structuredContent` unless the result is an error.
+      expect(isError, name).toBe(true);
       // Without an elicitation-capable client the guard falls back to the
       // two-call token, so the first call has to hand one back.
       expect(text, name).toContain('confirm_token');

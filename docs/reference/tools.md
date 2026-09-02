@@ -11,6 +11,13 @@ what a person is asked.
 52 tools in total. The 18 read tools are always registered; the 34 write and
 import tools are omitted when `MEALIE_READ_ONLY=true`.
 
+Every tool declares an `outputSchema` and answers with `structuredContent` beside
+the text block, so a client can use a result without parsing prose. Most carry
+`untrusted: true` and `source: "mealie"` as fields of that object — recipes are
+routinely scraped from arbitrary websites. The ten without the marker answer
+with an id this server was given, or with `get_about`’s version and permission
+flags.
+
 ::: info Recipe references: slug or UUID
 Wherever a parameter is described as a *recipe slug or UUID*, both work — Mealie
 splits its identifier space (recipe CRUD uses the slug, meal plans, ratings and

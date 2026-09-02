@@ -44,8 +44,30 @@ function largestArrayKey(record: Record<string, unknown>): string | undefined {
  * the result stays valid JSON with an explicit `truncated` block.
  */
 export function budgetedJson(data: unknown, followUp?: string): string {
+  return JSON.stringify(budget(data, followUp), null, 2);
+}
+
+/**
+ * The payload, shrunk to fit — as a value, not as text.
+ *
+ * Every tool declares an `outputSchema` and answers with `structuredContent`
+ * beside the text block, and the two have to carry the same thing. So the
+ * shrinking happens on the object and the serialization is derived from it.
+ */
+export function budget(
+  data: unknown,
+  followUp?: string
+): Record<string, unknown> {
   const full = JSON.stringify(data, null, 2);
-  if (full.length <= MAX_RESULT_BYTES) return full;
+  if (full.length <= MAX_RESULT_BYTES) {
+    // Wrapped when it is not already an object. A schema whose root is an
+    // array or a scalar is served to a 2025-era client rewritten as
+    // `{result: …}`, so the tool would answer in two shapes depending on who
+    // asked.
+    return data !== null && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : { items: data };
+  }
 
   const reason = `the full result exceeded ${MAX_RESULT_BYTES} characters`;
   const hint =
@@ -59,20 +81,18 @@ export function budgetedJson(data: unknown, followUp?: string): string {
     let keep = data.length;
     while (keep > 0) {
       keep = Math.floor(keep / 2);
-      const text = JSON.stringify(
-        {
-          truncated: {
-            reason,
-            returned_items: keep,
-            omitted_items: data.length - keep,
-            follow_up: hint,
-          },
-          items: data.slice(0, keep),
+      const value = {
+        truncated: {
+          reason,
+          returned_items: keep,
+          omitted_items: data.length - keep,
+          follow_up: hint,
         },
-        null,
-        2
-      );
-      if (text.length <= MAX_RESULT_BYTES) return text;
+        items: data.slice(0, keep),
+      };
+      if (JSON.stringify(value, null, 2).length <= MAX_RESULT_BYTES) {
+        return value;
+      }
     }
   }
 
@@ -87,39 +107,47 @@ export function budgetedJson(data: unknown, followUp?: string): string {
       let keep = items.length;
       while (keep > 0) {
         keep = Math.floor(keep / 2);
-        const text = JSON.stringify(
-          {
-            truncated: {
-              reason,
-              returned_items: keep,
-              omitted_items: items.length - keep,
-              follow_up: hint,
-            },
-            ...record,
-            [key]: items.slice(0, keep),
+        const value = {
+          truncated: {
+            reason,
+            returned_items: keep,
+            omitted_items: items.length - keep,
+            follow_up: hint,
           },
-          null,
-          2
-        );
-        if (text.length <= MAX_RESULT_BYTES) return text;
+          ...record,
+          [key]: items.slice(0, keep),
+        };
+        if (JSON.stringify(value, null, 2).length <= MAX_RESULT_BYTES) {
+          return value;
+        }
       }
     }
   }
 
-  // Nothing array-shaped to shrink: emit a valid envelope that carries the
-  // oversized document as a string value rather than as broken JSON.
-  return JSON.stringify(
-    {
-      truncated: { reason, follow_up: hint },
-      partial_json: full.slice(0, MAX_RESULT_BYTES),
-    },
-    null,
-    2
-  );
+  // Nothing array-shaped to shrink. This used to answer with an envelope
+  // carrying the oversized document as a string — valid JSON, and no longer a
+  // valid *answer*: the SDK checks a result against the schema its tool
+  // declares, so an envelope of a different shape is refused.
+  throw new ResultTooLargeError(`${reason}. ${hint}`);
 }
 
+/** Raised by {@link budget}; `run` turns it into an error result. */
+export class ResultTooLargeError extends Error {}
+
+/**
+ * An answer in both channels at once.
+ *
+ * `structuredContent` is the machine-readable half and the reason every tool
+ * here declares an `outputSchema`; the text block stays because the SDK does
+ * NOT synthesize one for an object-shaped value, and a client that reads only
+ * `content` would otherwise get an empty answer.
+ */
 export function jsonResult(data: unknown, followUp?: string): CallToolResult {
-  return textResult(budgetedJson(data, followUp));
+  const value = budget(data, followUp);
+  return {
+    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    structuredContent: value,
+  };
 }
 
 const UNTRUSTED_PREAMBLE =
@@ -140,8 +168,28 @@ export function untrustedResult(
   data: unknown,
   followUp?: string
 ): CallToolResult {
-  const text = typeof data === 'string' ? data : budgetedJson(data, followUp);
-  return textResult(`${UNTRUSTED_PREAMBLE}\n\n${text}`);
+  // The two marker names are stripped from the payload before they are set, so
+  // the guard cannot be switched off by the content it guards against — and a
+  // recipe is routinely scraped from an arbitrary website.
+  const {
+    untrusted: _untrusted,
+    source: _source,
+    ...rest
+  } = budget(data, followUp);
+  const value = {
+    untrusted: true as const,
+    source: 'mealie' as const,
+    ...rest,
+  };
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `${UNTRUSTED_PREAMBLE}\n\n${JSON.stringify(value, null, 2)}`,
+      },
+    ],
+    structuredContent: value,
+  };
 }
 
 const MAX_ERROR_BODY_LENGTH = 2000;
@@ -219,7 +267,10 @@ export async function run(
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof ToolInputError) {
+    if (
+      error instanceof ToolInputError ||
+      error instanceof ResultTooLargeError
+    ) {
       return errorResult(error.message);
     }
     if (error instanceof MealieApiError) {

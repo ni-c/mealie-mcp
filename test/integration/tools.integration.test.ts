@@ -1,4 +1,5 @@
 import {
+  expectEveryToolDeclaresOutputSchema,
   expectEveryToolExercised,
   startServer,
   toolCoverage,
@@ -355,7 +356,7 @@ describe('what a confirmation token is bound to', () => {
   // for something else, which is the case the resource key exists to catch.
 
   it('refuses a token that does not match, and says so', async () => {
-    await plain.call('create_share_token', { recipe: slug });
+    await plainPrompt('create_share_token', { recipe: slug });
     const refused = await plain.call(
       'create_share_token',
       { recipe: slug, confirm_token: 'deadbeef' },
@@ -372,7 +373,7 @@ describe('what a confirmation token is bound to', () => {
   });
 
   it('is single-use: a consumed token cannot delete a second time', async () => {
-    const first = await plain.call('delete_recipe', { recipe: duplicateSlug });
+    const first = await plainPrompt('delete_recipe', { recipe: duplicateSlug });
     const token = tokenOf(first);
     await plain.call('delete_recipe', {
       recipe: duplicateSlug,
@@ -388,7 +389,7 @@ describe('what a confirmation token is bound to', () => {
   it('is bound to the whole id set, not to its first member', async () => {
     // The case the resource key exists for: a confirmation shown for one item
     // must not authorise a call that quietly grew a second one.
-    const first = await plain.call('delete_shopping_list_items', {
+    const first = await plainPrompt('delete_shopping_list_items', {
       item_ids: [itemIds[1]],
     });
     const token = tokenOf(first);
@@ -408,7 +409,7 @@ describe('what a confirmation token is bound to', () => {
   it('is bound to the direction of a merge', async () => {
     // from→to and to→from are not the same operation, and the loser is
     // deleted. A key built from an unordered pair would make them one.
-    const first = await plain.call('merge_foods', {
+    const first = await plainPrompt('merge_foods', {
       from_id: foodB,
       to_id: foodA,
     });
@@ -582,6 +583,23 @@ describe('cleaning up', () => {
     await asking.call('delete_shopping_list', { list_id: listId });
     await asking.call('delete_recipe', { recipe: slug });
   });
+});
+
+/** A guarded tool's first call: the confirmation prompt, which is an error. */
+async function plainPrompt(
+  name: string,
+  args: Record<string, unknown> = {}
+): Promise<string> {
+  return plain.call(name, args, { expectError: /confirm_token=/ });
+}
+
+it('declares an output schema on every tool', async () => {
+  // The unit suite checks the same thing against a stub. Here it is checked
+  // against the server that has just answered every one of these tools against
+  // a real Mealie — and each of those answers went through the SDK's validation
+  // against the schema below it.
+  const { tools } = await asking.client.listTools();
+  expectEveryToolDeclaresOutputSchema(tools);
 });
 
 it('exercises every tool in the catalogue', () => {

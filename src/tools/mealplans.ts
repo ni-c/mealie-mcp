@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -16,7 +17,7 @@ import { resolveRecipe } from '../lookup.js';
 import {
   errorResult,
   run,
-  textResult,
+  jsonResult,
   ToolInputError,
   untrustedResult,
 } from '../result.js';
@@ -65,6 +66,7 @@ export function registerMealplanReadTools(
         per_page: perPageParam(50),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ start_date, end_date, page, per_page }) =>
       run(async () => {
@@ -103,6 +105,7 @@ export function registerMealplanReadTools(
         'the household. Answers with a bare list, not a paginated envelope.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async () =>
       run(async () => {
@@ -150,6 +153,7 @@ export function registerMealplanWriteTools(
           .describe('Additional note shown under the title'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ date, entry_type, recipe, title, text }) =>
       run(async () => {
@@ -185,6 +189,7 @@ export function registerMealplanWriteTools(
         entry_type: entryTypeParam,
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ date, entry_type }) =>
       run(async () => {
@@ -215,6 +220,7 @@ export function registerMealplanWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
     async (
       { entry_id, date, entry_type, recipe, title, text, confirm_token },
@@ -293,6 +299,9 @@ export function registerMealplanWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({
+        removed_entry_id: z.union([z.string(), z.number()]),
+      }),
     },
     async ({ entry_id, confirm_token }, mcp) =>
       run(async () => {
@@ -324,7 +333,7 @@ export function registerMealplanWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/mealplans/${entry_id}`);
-        return textResult(`Removed meal plan entry ${entry_id}.`);
+        return jsonResult({ removed_entry_id: entry_id });
       })
   );
 }

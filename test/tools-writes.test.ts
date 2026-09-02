@@ -235,7 +235,7 @@ describe('meal plan writes', () => {
       entry_id: 7,
     });
     expect(result.prompt).toContain('recipe itself is kept');
-    expect(result.text).toContain('Removed meal plan entry 7');
+    expect(JSON.parse(result.text)).toEqual({ removed_entry_id: 7 });
     expect(callsOf(spy).find((c) => c.method === 'DELETE')?.url).toContain(
       '/api/households/mealplans/7'
     );

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -31,6 +32,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         order_direction: orderDirectionParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -64,6 +66,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         order_direction: orderDirectionParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -108,6 +111,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
           ),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ ingredients, parser }) =>
       run(async () => {
@@ -142,6 +146,7 @@ export function registerFoodWriteTools(
           .describe('Shopping-list label to file this food under'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name, plural_name, description, label_id }) =>
       run(async () => {
@@ -177,6 +182,7 @@ export function registerFoodWriteTools(
         description: z.string().max(2000).optional(),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({
       name,
@@ -237,6 +243,7 @@ function registerMerge(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
     async ({ from_id, to_id, confirm_token }, mcp) =>
       run(async () => {

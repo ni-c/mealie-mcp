@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -12,7 +13,7 @@ import { query, type MealieApi } from '../api.js';
 import { contentFingerprint } from '../fingerprint.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
-import { errorResult, run, textResult, untrustedResult } from '../result.js';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 import { listFrom, organizerSummary, paginationOf } from '../shape.js';
 
 /**
@@ -77,6 +78,7 @@ export function registerOrganizerReadTools(
         order_direction: orderDirectionParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ kind, search, page, per_page, order_direction }) =>
       run(async () => {
@@ -118,6 +120,7 @@ export function registerOrganizerWriteTools(
         name: z.string().trim().min(1).max(255),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ kind, name }) =>
       run(async () => {
@@ -143,6 +146,7 @@ export function registerOrganizerWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
     async ({ kind, id, name, confirm_token }, mcp) =>
       run(async () => {
@@ -202,6 +206,7 @@ export function registerOrganizerWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted: z.string(), deleted_id: z.string() }),
     },
     async ({ kind, id, confirm_token }, mcp) =>
       run(async () => {
@@ -233,7 +238,7 @@ export function registerOrganizerWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`${spec.path}/${id}`);
-        return textResult(`Deleted the ${spec.label} with id ${id}.`);
+        return jsonResult({ deleted: spec.label, deleted_id: id });
       })
   );
 }

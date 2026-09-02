@@ -14,6 +14,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Every tool declares an `outputSchema` and answers with `structuredContent`
+  beside the text block. A client no longer has to parse prose to use a result —
+  which nine of them made unavoidable, since they answered with a sentence. The
+  sentence stays, in the text block.
+
+  Most tools carry `untrusted: true` and `source: "mealie"` as fields, not only
+  as a preamble in the text: recipes are routinely scraped from arbitrary
+  websites and comments come from other users of the instance. The ten without
+  the marker answer with an id this server was given, or — for `get_about` — a
+  version string and the permission flags of the account it authenticates as.
+
+  Mealie's records are described as open objects with the top-level keys this
+  server builds. A self-hosted Mealie is any release, and a strict shape would
+  turn a field one adds into a tool that fails outright.
+
+### Changed
+
+- A result too large to shrink is now an error rather than an envelope carrying
+  the oversized document as a string. That envelope is valid JSON and no longer
+  a valid _answer_: the SDK checks a result against the schema its tool
+  declares.
+
+- `update_recipe` with no fields answers `{recipe, changed: false, note}` rather
+  than the bare sentence. It is still not an error — a model that resolved every
+  field to its current value should not be punished for asking.
+
+- The two-call `confirm_token` prompt is an error result. What was asked for did
+  not happen, which is what `isError` says. The text is unchanged and still
+  carries the token.
+
 ### Security
 
 - **The confirmation gate was drawn along the wrong line.** It followed the tool

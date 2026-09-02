@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { query, type MealieApi } from '../api.js';
@@ -6,7 +7,7 @@ import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
-import { errorResult, run, textResult, untrustedResult } from '../result.js';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
 import { listFrom, shareToken, shareUrl } from '../shape.js';
 
@@ -29,6 +30,7 @@ export function registerSharingReadTools(
           .describe('Restrict the result to one recipe'),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe }) =>
       run(async () => {
@@ -83,6 +85,7 @@ export function registerSharingWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, expires_at, confirm_token }, mcp) =>
       run(async () => {
@@ -148,6 +151,7 @@ export function registerSharingWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ revoked_token_id: z.string() }),
     },
     async ({ token_id, confirm_token }, mcp) =>
       run(async () => {
@@ -183,7 +187,7 @@ export function registerSharingWriteTools(
         if (outcome.decision === 'pending') return outcome.result;
 
         await api.delete(`/api/shared/recipes/${token_id}`);
-        return textResult(`Revoked the share link with id ${token_id}.`);
+        return jsonResult({ revoked_token_id: token_id });
       })
   );
 }

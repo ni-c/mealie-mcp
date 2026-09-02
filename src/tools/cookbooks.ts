@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -16,7 +17,7 @@ import {
 import { assertPathSegment, query, type MealieApi } from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
-import { errorResult, run, textResult, untrustedResult } from '../result.js';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 
 export function registerCookbookReadTools(
   server: McpServer,
@@ -31,6 +32,7 @@ export function registerCookbookReadTools(
         'the recipe collection, not a fixed set of recipes.',
       inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -64,6 +66,7 @@ export function registerCookbookReadTools(
         per_page: perPageParam(50),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ cookbook, per_page }) =>
       run(async () => {
@@ -122,6 +125,7 @@ export function registerCookbookWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async (
       { name, description, query_filter, is_public, confirm_token },
@@ -194,6 +198,7 @@ export function registerCookbookWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_cookbook_id: z.string() }),
     },
     async ({ cookbook_id, confirm_token }, mcp) =>
       run(async () => {
@@ -223,7 +228,7 @@ export function registerCookbookWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/cookbooks/${cookbook_id}`);
-        return textResult(`Deleted the cookbook with id ${cookbook_id}.`);
+        return jsonResult({ deleted_cookbook_id: cookbook_id });
       })
   );
 }

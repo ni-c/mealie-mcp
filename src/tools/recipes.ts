@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -33,7 +34,7 @@ import { contentFingerprint, presentFields } from '../fingerprint.js';
 import {
   errorResult,
   run,
-  textResult,
+  jsonResult,
   ToolInputError,
   untrustedResult,
 } from '../result.js';
@@ -139,6 +140,7 @@ export function registerRecipeReadTools(
         per_page: perPageParam(25),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({
       search,
@@ -243,6 +245,7 @@ export function registerRecipeReadTools(
           ),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe, detail }) =>
       run(async () => {
@@ -295,6 +298,7 @@ export function registerRecipeReadTools(
           .describe('Number of suggestions, default 10'),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ foods, tools, max_missing_foods, max_missing_tools, limit }) =>
       run(async () => {
@@ -323,6 +327,7 @@ export function registerRecipeReadTools(
         'Lists the comments other users of the instance left on a recipe.',
       inputSchema: z.object({ recipe: recipeRefParam }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe }) =>
       run(async () => {
@@ -351,6 +356,7 @@ export function registerRecipeReadTools(
         per_page: perPageParam(50),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe, page, per_page }) =>
       run(async () => {
@@ -481,6 +487,7 @@ export function registerRecipeWriteTools(
         ...recipeFields,
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name, ...fields }) =>
       run(async () => {
@@ -542,6 +549,7 @@ export function registerRecipeWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
     async ({ recipe, confirm_token, ...fields }, mcp) =>
       run(async () => {
@@ -590,7 +598,14 @@ export function registerRecipeWriteTools(
 
         const patch = await buildRecipePatch(api, fields);
         if (Object.keys(patch).length === 0) {
-          return textResult('Nothing to update: no field was given.');
+          // Not an error, and the integration suite pins that: a model that
+          // resolved every field to its current value should not be punished
+          // for asking. It is an answer that says nothing changed.
+          return untrustedResult({
+            recipe,
+            changed: false,
+            note: 'Nothing to update: no field was given.',
+          });
         }
         // PATCH, never PUT. Mealie's PUT route replaces the whole 33-field recipe
         // object, so a partial body there silently drops ingredients, steps and
@@ -621,6 +636,7 @@ export function registerRecipeWriteTools(
           .describe('Name of the copy; Mealie appends a counter when omitted'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, name }) =>
       run(async () => {
@@ -653,6 +669,7 @@ export function registerRecipeWriteTools(
           ),
       }),
       annotations: WRITE,
+      outputSchema: plain({ recipe: z.string(), last_made: z.string() }),
     },
     async ({ recipe, timestamp }) =>
       run(async () => {
@@ -660,9 +677,7 @@ export function registerRecipeWriteTools(
           `/api/recipes/${assertPathSegment(recipe, 'recipe')}/last-made`,
           { timestamp }
         );
-        return textResult(
-          `Recorded ${timestamp} as the last time it was made.`
-        );
+        return jsonResult({ recipe, last_made: timestamp });
       })
   );
 
@@ -679,6 +694,7 @@ export function registerRecipeWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_recipe_id: z.string() }),
     },
     async ({ recipe, confirm_token }, mcp) =>
       run(async () => {
@@ -712,7 +728,7 @@ export function registerRecipeWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/recipes/${assertPathSegment(slug, 'recipe')}`);
-        return textResult(`Deleted the recipe with id ${id}.`);
+        return jsonResult({ deleted_recipe_id: id });
       })
   );
 }

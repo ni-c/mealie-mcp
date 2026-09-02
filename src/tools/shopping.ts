@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import { setResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
@@ -23,7 +24,7 @@ import { resolveRecipe } from '../lookup.js';
 import {
   errorResult,
   run,
-  textResult,
+  jsonResult,
   ToolInputError,
   untrustedResult,
 } from '../result.js';
@@ -44,6 +45,7 @@ export function registerShoppingReadTools(
         'Lists the shopping lists of the household, without their items.',
       inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -74,6 +76,7 @@ export function registerShoppingReadTools(
           .describe('Include items already ticked off, default true'),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ list_id, include_checked }) =>
       run(async () => {
@@ -107,6 +110,7 @@ export function registerShoppingWriteTools(
       description: 'Creates an empty shopping list in the household.',
       inputSchema: z.object({ name: z.string().trim().min(1).max(255) }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name }) =>
       run(async () => {
@@ -127,6 +131,7 @@ export function registerShoppingWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_list_id: z.string() }),
     },
     async ({ list_id, confirm_token }, mcp) =>
       run(async () => {
@@ -159,7 +164,7 @@ export function registerShoppingWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/shopping/lists/${list_id}`);
-        return textResult(`Deleted the shopping list with id ${list_id}.`);
+        return jsonResult({ deleted_list_id: list_id });
       })
   );
 
@@ -180,6 +185,7 @@ export function registerShoppingWriteTools(
           .describe('The lines to add, one item each'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, items }) =>
       run(async () => {
@@ -240,6 +246,7 @@ export function registerShoppingWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
     async (
       { list_id, item_ids, checked, quantity, note, confirm_token },
@@ -355,6 +362,10 @@ export function registerShoppingWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({
+        removed_count: z.number().int(),
+        removed_item_ids: z.array(z.string()),
+      }),
     },
     async ({ item_ids, confirm_token }, mcp) =>
       run(async () => {
@@ -393,7 +404,10 @@ export function registerShoppingWriteTools(
         await api.delete(
           `/api/households/shopping/items${query({ ids: item_ids })}`
         );
-        return textResult(`Removed ${item_ids.length} item(s).`);
+        return jsonResult({
+          removed_count: item_ids.length,
+          removed_item_ids: item_ids,
+        });
       })
   );
 
@@ -417,6 +431,7 @@ export function registerShoppingWriteTools(
           .describe('Scale the ingredient quantities, default 1'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {
@@ -451,6 +466,7 @@ export function registerShoppingWriteTools(
           .describe('How much of the recipe to remove, default 1'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {

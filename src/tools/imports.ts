@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
@@ -43,6 +44,7 @@ export function registerImportReadTools(
         url: httpUrl.describe('Address of the recipe page to test'),
       }),
       annotations: { ...READ_ONLY, openWorldHint: true },
+      outputSchema: marked(),
     },
     async ({ url }) =>
       run(async () => {
@@ -81,6 +83,7 @@ export function registerImportTools(
         include_categories: z.boolean().optional(),
       }),
       annotations: { ...WRITE, openWorldHint: true },
+      outputSchema: marked(),
     },
     async ({ url, include_tags, include_categories }) =>
       run(async () => {
@@ -126,6 +129,7 @@ export function registerImportTools(
       // `recipe_data_service.scrape_image`. A client or policy layer that reads
       // this hint was being told the opposite of what happens.
       annotations: { ...WRITE, openWorldHint: true },
+      outputSchema: marked(),
     },
     async ({ data }) =>
       run(async () => {
@@ -178,6 +182,7 @@ export function registerImportTools(
           ),
       }),
       annotations: { ...WRITE, openWorldHint: true },
+      outputSchema: marked(),
     },
     async ({ image_base64, format, translate_language }) =>
       run(async () => {

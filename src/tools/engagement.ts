@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 
 import { assertPathSegment, type MealieApi } from '../api.js';
@@ -8,7 +9,7 @@ import { resolveRecipe, type CurrentUser } from '../lookup.js';
 import {
   errorResult,
   run,
-  textResult,
+  jsonResult,
   ToolInputError,
   untrustedResult,
 } from '../result.js';
@@ -40,6 +41,7 @@ export function registerEngagementWriteTools(
         is_favorite: z.boolean().optional(),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, rating, is_favorite }) =>
       run(async () => {
@@ -76,6 +78,7 @@ export function registerEngagementWriteTools(
         text: z.string().trim().min(1).max(10_000),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, text }) =>
       run(async () => {
@@ -102,6 +105,7 @@ export function registerEngagementWriteTools(
         confirm_token: confirmTokenParam,
       }),
       annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_comment_id: z.string() }),
     },
     async ({ comment_id, confirm_token }, mcp) =>
       run(async () => {
@@ -133,7 +137,7 @@ export function registerEngagementWriteTools(
         }
         if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/comments/${comment_id}`);
-        return textResult(`Deleted the comment with id ${comment_id}.`);
+        return jsonResult({ deleted_comment_id: comment_id });
       })
   );
 
@@ -165,6 +169,7 @@ export function registerEngagementWriteTools(
           .describe('When it happened; defaults to now'),
       }),
       annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, subject, message, timestamp }) =>
       run(async () => {

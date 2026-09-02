@@ -102,6 +102,55 @@ describe('tool registration', () => {
     }
   });
 
+  it('declares an output schema on every tool', async () => {
+    // The same argument as the annotations below, one field along. A tool that
+    // says nothing about its result forces a client to parse prose to find out
+    // what it got, and the SDK sends no `structuredContent` at all for a tool
+    // that declared no schema — nine tools here answered with a sentence.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.outputSchema, tool.name).toBeDefined();
+      // An object root, not merely a schema. SEP-2106 allows an array or a
+      // scalar, but a 2025-era client is served that same tool with the schema
+      // rewritten to `{result: …}` — so it would answer in two shapes
+      // depending on who asked.
+      expect(tool.outputSchema?.type, tool.name).toBe('object');
+    }
+  });
+
+  it('marks the results built from Mealie content as untrusted', async () => {
+    // Recipes are routinely scraped from arbitrary websites and comments come
+    // from other users of the instance, so a client that reads only
+    // `structuredContent` must not get any of it unframed.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const plainTools = tools
+      .filter((tool) => {
+        const properties = tool.outputSchema?.properties as
+          Record<string, unknown> | undefined;
+        return properties?.untrusted === undefined;
+      })
+      .map((tool) => tool.name)
+      .sort();
+    // The ones whose answer is this server's own words: an id it was given, or
+    // — for get_about — a version string and the permission flags of the
+    // account it authenticates as.
+    expect(plainTools).toEqual([
+      'delete_cookbook',
+      'delete_mealplan_entry',
+      'delete_organizer',
+      'delete_recipe',
+      'delete_recipe_comment',
+      'delete_share_token',
+      'delete_shopping_list',
+      'delete_shopping_list_items',
+      'get_about',
+      'set_recipe_last_made',
+    ]);
+  });
+
   it('declares all four annotation hints on every tool', async () => {
     // Not a style rule. Two of the four default to a *stronger* claim than
     // silence suggests: the specification gives destructiveHint and
@@ -460,12 +509,16 @@ describe('write tools', () => {
     expect(calls.every((c) => c.method !== 'PUT')).toBe(true);
   });
 
-  it('refuses an update with no fields without calling the API', async () => {
+  it('answers an update with no fields without calling the API', async () => {
+    // Not an error: a model that resolved every field to its current value
+    // should not be punished for asking. It says nothing changed, in fields
+    // rather than in a sentence.
     const spy = mockFetch();
     const { text } = await callText(await connect(), 'update_recipe', {
       recipe: 'quark-bowl',
     });
-    expect(text).toBe('Nothing to update: no field was given.');
+    expect(text).toContain('Nothing to update: no field was given.');
+    expect(text).toContain('"changed": false');
     expect(spy).not.toHaveBeenCalled();
   });
 
