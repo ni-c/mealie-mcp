@@ -426,6 +426,16 @@ describe('what a confirmation token is bound to', () => {
     });
     await plain.confirmed('merge_units', { from_id: unitB, to_id: unitA });
   });
+
+  it('asked a person on one harness and nobody on the other', () => {
+    // What proves the two harnesses really took different paths, rather than
+    // one of them quietly doing both. Without it the suite starts an
+    // elicitation-capable server, drives every guarded tool through it, and
+    // would stay green against a server that never asks anyone anything —
+    // which is the entire promise the dialog half is here to keep.
+    expect(asking.prompts.length).toBeGreaterThan(0);
+    expect(plain.prompts).toHaveLength(0);
+  });
 });
 
 describe('filters Mealie would otherwise drop in silence', () => {
