@@ -4,6 +4,7 @@ import { recipePatch } from '../src/tools/recipes.js';
 import {
   callsOf,
   callText,
+  confirmed,
   connect,
   GENERIC,
   mockFetch,
@@ -124,16 +125,19 @@ describe('tool registration', () => {
   });
 
   it('opens the world only where Mealie talks to somebody else', async () => {
-    // Two situations, both counting: the caller names the address
+    // Three situations, all counting: the caller names the address
     // (import_recipe_from_url, preview_recipe_url — the boundary the SSRF
-    // guard watches), or the operator did (import_recipe_from_image goes to
-    // the configured AI provider). import_recipe_from_html_or_json takes the
-    // content directly and reaches nothing — the distinction that used to be
-    // invisible, because the other forty-nine tools inherited `true` anyway.
+    // guard watches), the operator did (import_recipe_from_image goes to the
+    // configured AI provider), or the caller's *content* does.
+    // import_recipe_from_html_or_json is the third: it does not fetch the
+    // document, but Mealie reads the image address out of it and fetches that.
+    // It used to be listed here as reaching nothing, which made this test pin
+    // down the wrong answer.
     const reaching = [
       'import_recipe_from_url',
       'preview_recipe_url',
       'import_recipe_from_image',
+      'import_recipe_from_html_or_json',
     ];
     const { tools } = await (await connect()).listTools();
     for (const tool of tools) {
@@ -237,13 +241,24 @@ describe('read tools', () => {
   });
 
   it('repeats multi-valued filters as separate query keys', async () => {
-    const spy = mockFetch();
+    // The values reaching Mealie are ids now, not what the caller typed — see
+    // the resolution tests below for why — so this checks the shape of the
+    // query string, which is the thing it was always about: repeated keys
+    // rather than one comma-separated value.
+    const spy = mockFetch([
+      { id: 'aaaaaaaa-1111-4111-8111-111111111111', slug: 'keto' },
+      { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'vegetarian' },
+      GENERIC,
+    ]);
     await callText(await connect(), 'search_recipes', {
       tags: ['keto', 'vegetarian'],
       require_all_tags: true,
     });
-    const url = new URL(callsOf(spy)[0]!.url);
-    expect(url.searchParams.getAll('tags')).toEqual(['keto', 'vegetarian']);
+    const url = new URL(callsOf(spy).at(-1)!.url);
+    expect(url.searchParams.getAll('tags')).toEqual([
+      'aaaaaaaa-1111-4111-8111-111111111111',
+      'bbbbbbbb-2222-4222-8222-222222222222',
+    ]);
     expect(url.searchParams.get('requireAllTags')).toBe('true');
   });
 
@@ -436,12 +451,12 @@ describe('write tools', () => {
     // Mealie's PUT replaces the whole 33-field recipe, so a partial body there
     // silently drops ingredients, steps and tags.
     const spy = mockFetch();
-    await callText(await connect(), 'update_recipe', {
+    await confirmed(await connect(), 'update_recipe', {
       recipe: 'quark-bowl',
       name: 'New Name',
     });
     const calls = callsOf(spy);
-    expect(calls[0]!.method).toBe('PATCH');
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(true);
     expect(calls.every((c) => c.method !== 'PUT')).toBe(true);
   });
 
