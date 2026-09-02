@@ -12,18 +12,21 @@
  *   **A setting, a state or a marker, changed — not destructive.**
  *
  * `openWorldHint` is `true` wherever the call makes Mealie talk to somebody
- * outside itself, which is two different situations and both count:
+ * outside itself, which is three different situations and all of them count:
  *
  *   - the caller names the address — `import_recipe_from_url` and
  *     `preview_recipe_url` hand Mealie a URL of the caller's choosing. That is
  *     the boundary the SSRF guard in `schema.ts` watches.
  *   - the operator named it — `import_recipe_from_image` sends the picture to
  *     whichever AI provider the instance is configured with.
- *
- * `import_recipe_from_html_or_json` takes the content directly and reaches
- * nothing, which is the distinction that used to be invisible: three tools
- * said `true` while the other forty-nine inherited `true`, so the marking
- * carried no information at all.
+ *   - the caller's *content* names it — `import_recipe_from_html_or_json`
+ *     hands over a document, and Mealie reads the image address out of it and
+ *     fetches that. This one used to be marked `false`, on the reasoning that a
+ *     document is not a URL. It is not, but it contains one: on v3.22.0 a
+ *     pasted `{"image": "http://…/latest/meta-data/"}` puts `Image URL: …` in
+ *     Mealie's log and goes through `recipe_data_service.scrape_image`. A
+ *     policy layer that reads this hint was being told the opposite of what the
+ *     tool does, which is worse than a hint that says nothing.
  */
 export const READ_ONLY = {
   readOnlyHint: true,
