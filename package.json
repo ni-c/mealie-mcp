@@ -35,8 +35,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "prepublishOnly": "npm run lint && npm run build && npm test",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run build && npm test",
     "build": "tsc",
+    "typecheck": "tsc --project tsconfig.test.json",
     "watch": "tsc --watch",
     "lint": "oxlint --deny-warnings && prettier --check .",
     "format": "prettier --write .",

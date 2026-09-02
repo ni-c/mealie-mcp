@@ -14,6 +14,9 @@ const config: Config = {
   acceptLanguage: undefined,
   insecureTls: false,
   readOnly: false,
+  elicitation: true,
+  allowTools: undefined,
+  denyTools: undefined,
 };
 
 afterEach(() => {

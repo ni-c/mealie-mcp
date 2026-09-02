@@ -289,6 +289,9 @@ describe('missingConfigKeys', () => {
     acceptLanguage: undefined,
     insecureTls: false,
     readOnly: false,
+    elicitation: true,
+    allowTools: undefined,
+    denyTools: undefined,
   };
 
   it('reports nothing when configured', () => {
