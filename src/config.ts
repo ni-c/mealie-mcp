@@ -91,8 +91,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const url = env.MEALIE_URL;
   const token = env.MEALIE_API_TOKEN;
   const acceptLanguage = env.MEALIE_ACCEPT_LANGUAGE;
+  // `MEALIE_INSECURE_TLS` stays exact on purpose: it *weakens* the server, so
+  // only the one spelling that unambiguously asks for it should do it.
   const insecureTls = env.MEALIE_INSECURE_TLS === 'true';
-  const readOnly = env.MEALIE_READ_ONLY === 'true';
+  // `MEALIE_READ_ONLY` is the other direction — it only ever takes capability
+  // away — so the fleet form is generous with the spelling. An operator who
+  // wrote `1` or `yes` meant the safe thing, and `MEALIE_READ_ONLY=true ` with
+  // a trailing space used to mean the unsafe one.
+  const readOnly = /^(1|true|yes)$/i.test(env.MEALIE_READ_ONLY?.trim() ?? '');
   const allowTools = env.MEALIE_ALLOW_TOOLS;
   const denyTools = env.MEALIE_DENY_TOOLS;
 

@@ -110,18 +110,44 @@ describe('loadConfig', () => {
     expect(config.url).toBe('https://mealie.example.com');
   });
 
-  it('treats the booleans as exactly "true"', () => {
+  it('reads READ_ONLY generously and INSECURE_TLS exactly', () => {
     silence();
-    const config = loadConfig({
-      MEALIE_URL: 'https://mealie.example.com',
-      MEALIE_API_TOKEN: 't',
-      MEALIE_READ_ONLY: 'True',
-      MEALIE_INSECURE_TLS: '1',
-    } as NodeJS.ProcessEnv);
-    // A typo in READ_ONLY therefore fails OPEN. Documented, and the reason the
-    // startup banner in index.ts prints the effective mode.
-    expect(config.readOnly).toBe(false);
-    expect(config.insecureTls).toBe(false);
+    // The two variables move in opposite directions, so they are read
+    // differently. READ_ONLY only ever takes capability away: somebody who
+    // wrote "True", "1", "yes" or "true " meant the safe thing and gets it.
+    for (const raw of ['true', 'True', 'TRUE', '1', 'yes', 'YES', ' true ']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_READ_ONLY: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.readOnly, JSON.stringify(raw)).toBe(true);
+    }
+    for (const raw of ['', 'false', 'no', '0', 'ture', 'on']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_READ_ONLY: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.readOnly, JSON.stringify(raw)).toBe(false);
+    }
+    // INSECURE_TLS weakens the server, so only the one spelling that asks for
+    // it unambiguously does it.
+    for (const raw of ['1', 'yes', 'True', 'TRUE', ' true ']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_INSECURE_TLS: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.insecureTls, JSON.stringify(raw)).toBe(false);
+    }
+    expect(
+      loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_INSECURE_TLS: 'true',
+      } as NodeJS.ProcessEnv).insecureTls
+    ).toBe(true);
   });
 
   it('removes the token from the environment', () => {
