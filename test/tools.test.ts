@@ -10,6 +10,7 @@ import {
   mockFetch,
   tokenOf,
 } from './harness.js';
+import { expectPortableToolSchemas } from 'mcp-integration-harness';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -118,6 +119,17 @@ describe('tool registration', () => {
       // depending on who asked.
       expect(tool.outputSchema?.type, tool.name).toBe('object');
     }
+  });
+
+  it('advertises schemas every client can read', async () => {
+    // Legal JSON Schema is not enough. `{}` in a schema position — what zod
+    // writes for `looseObject`, `catchall` and `z.unknown()` — and `type` as an
+    // array are both refused, or silently dropped, by some clients. Neither is
+    // a contract: each has an equivalent spelling that says the same thing, so
+    // there is nothing here to excuse.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expectPortableToolSchemas(tools);
   });
 
   it('marks the results built from Mealie content as untrusted', async () => {
