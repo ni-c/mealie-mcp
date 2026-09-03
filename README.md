@@ -37,7 +37,7 @@ reliably from eight than from fifty-two — see
 
 Mealie's REST API has 259 operations across 175 paths. This server exposes **52
 tools**, chosen so that the common tasks are one call and the dangerous surface is
-not reachable at all. Verified against **Mealie v3.22.0**; the source of truth for
+not reachable at all. Verified against **Mealie v3.25.0**; the source of truth for
 every request shape is the `GET /openapi.json` of a running instance, not the
 published documentation, which is out of date in several places.
 

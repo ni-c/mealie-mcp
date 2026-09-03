@@ -30,7 +30,7 @@ call and the dangerous surface is not reachable at all:
   fall back to a server-issued token, which a model cannot fabricate, where the
   client cannot show one.
 
-The server is verified against **Mealie v3.22.0**. The source of truth for every
+The server is verified against **Mealie v3.25.0**. The source of truth for every
 request shape is the `GET /openapi.json` of a running instance, not the published
 documentation, which is out of date in several places.
 

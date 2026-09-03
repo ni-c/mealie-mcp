@@ -12,7 +12,7 @@ services:
   mealie:
     # Overridable so the weekly CI run can point at a newer tag and report
     # drift without changing what the PR gate tests.
-    image: ${MEALIE_IMAGE:-ghcr.io/mealie-recipes/mealie:v3.22.0}
+    image: ${MEALIE_IMAGE:-ghcr.io/mealie-recipes/mealie:v3.25.0}
     environment:
       ALLOW_SIGNUP: 'false'
       PUID: '1000'
