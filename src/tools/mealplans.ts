@@ -300,7 +300,9 @@ export function registerMealplanWriteTools(
       }),
       annotations: DESTRUCTIVE,
       outputSchema: plain({
-        removed_entry_id: z.union([z.string(), z.number()]),
+        // Echoed back from `entry_id`, which `entryIdParam` has already
+        // narrowed to a positive integer.
+        removed_entry_id: z.number().int(),
       }),
     },
     async ({ entry_id, confirm_token }, mcp) =>
