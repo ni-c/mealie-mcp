@@ -1,14 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { assertPathSegment, query, type MealieApi } from '../api.js';
-import type { Config } from '../config.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { resolveOrganizers, resolveRecipe } from '../lookup.js';
-import { textResult, run, ToolInputError, untrustedResult } from '../result.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
+  httpUrl,
   orderDirectionParam,
   pageParam,
   perPageParam,
@@ -25,15 +21,48 @@ import {
   timelineEvent,
 } from '../shape.js';
 
-const nameListParam = (what: string) =>
+import { assertPathSegment, query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import type { Config } from '../config.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import {
+  resolveOrganizerIds,
+  resolveOrganizers,
+  resolveRecipe,
+} from '../lookup.js';
+import { contentFingerprint, presentFields } from '../fingerprint.js';
+import {
+  errorResult,
+  run,
+  jsonResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
+
+const organizerListParam = (what: string) =>
   z
-    .array(z.string().trim().min(1))
+    .array(z.string().trim().min(1).max(255))
     .min(1)
     .max(20)
     .optional()
     .describe(
-      `Restrict the result to recipes carrying these ${what} — names, slugs or UUIDs`
+      `Restrict the result to recipes carrying these ${what} — names, slugs or ` +
+        'UUIDs. Each entry is resolved to an id before the search runs, and an ' +
+        'entry that matches nothing is an error: Mealie itself would drop the ' +
+        'whole filter and answer with the unfiltered collection.'
     );
+
+/**
+ * The filters Mealie resolves through its organizer tables.
+ *
+ * `foods` is deliberately not one of them. Mealie does not resolve foods at
+ * all — `_build_recipe_filter` puts the value straight into
+ * `RecipeIngredientModel.food_id == food`, so a non-UUID reaches the `GUID`
+ * type decorator and comes back as HTTP 500. Confirmed on v3.22.0:
+ * `GET /api/recipes?foods=carrot` is a 500. `suggest_recipes` has always taken
+ * UUIDs only, and this tool now matches it.
+ */
+const ORGANIZER_FILTERS = ['tags', 'categories', 'tools'] as const;
 
 export function registerRecipeReadTools(
   server: McpServer,
@@ -47,9 +76,12 @@ export function registerRecipeReadTools(
       description:
         'Searches the recipe collection. Returns summaries — name, slug, id, ' +
         'times, rating, tags and categories — without ingredients or steps; use ' +
-        'get_recipe for those. All filters combine with AND; within one filter ' +
-        'the entries are OR unless the matching require_all_* flag is set.',
-      inputSchema: {
+        'get_recipe for those. search, the organizer filters and the date range ' +
+        'combine with AND; within one filter the entries are OR unless the ' +
+        'matching require_all_* flag is set. cookbook is the exception: Mealie ' +
+        'applies a cookbook instead of the tag, category, tool and food filters, ' +
+        'so combining them is rejected here rather than silently ignored.',
+      inputSchema: z.object({
         search: z
           .string()
           .trim()
@@ -59,16 +91,28 @@ export function registerRecipeReadTools(
           .describe(
             'Full-text search over names, descriptions and ingredients'
           ),
-        tags: nameListParam('tags'),
-        categories: nameListParam('categories'),
-        tools: nameListParam('tools'),
-        foods: nameListParam('foods'),
+        tags: organizerListParam('tags'),
+        categories: organizerListParam('categories'),
+        tools: organizerListParam('tools'),
+        foods: z
+          .array(uuidParam)
+          .min(1)
+          .max(20)
+          .optional()
+          .describe(
+            'Restrict the result to recipes using these foods, by UUID from ' +
+              'list_foods. Mealie resolves no other form here and answers a name ' +
+              'or a slug with HTTP 500.'
+          ),
         cookbook: z
           .string()
           .trim()
           .min(1)
           .optional()
-          .describe('Restrict the result to a cookbook, by slug or UUID'),
+          .describe(
+            'Restrict the result to a cookbook, by slug or UUID. Cannot be ' +
+              'combined with the tag, category, tool or food filters.'
+          ),
         require_all_tags: z
           .boolean()
           .optional()
@@ -86,12 +130,17 @@ export function registerRecipeReadTools(
             'random',
           ])
           .optional()
-          .describe('Sort field, default created_at'),
+          .describe(
+            'Sort field, default created_at. "random" shuffles the collection; ' +
+              'each call draws a new shuffle, so paging through a random order ' +
+              'is not meaningful.'
+          ),
         order_direction: orderDirectionParam,
         page: pageParam,
         per_page: perPageParam(25),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({
       search,
@@ -110,12 +159,50 @@ export function registerRecipeReadTools(
       per_page,
     }) =>
       run(async () => {
+        // Mealie's `_build_recipe_filter` returns the cookbook's own filter and
+        // returns early, so the organizer filters never reach the query. The
+        // description above promises AND; without this the promise would be
+        // broken silently, which is the failure mode this whole tool now
+        // refuses to have.
+        const alsoGiven = { tags, categories, tools, foods };
+        const conflicting = Object.entries(alsoGiven)
+          .filter(([, value]) => value !== undefined)
+          .map(([name]) => name);
+        if (cookbook !== undefined && conflicting.length > 0) {
+          throw new ToolInputError(
+            `cookbook cannot be combined with ${conflicting.join(', ')}: Mealie ` +
+              'applies the cookbook filter instead of them, not on top of them, ' +
+              'and says nothing about it. Either search inside the cookbook with ' +
+              'get_cookbook, or drop the cookbook and filter directly.'
+          );
+        }
+
+        // Names are resolved to ids here, before anything is asked of the
+        // search endpoint, because Mealie drops a filter it cannot resolve and
+        // answers with the whole collection instead of an error.
+        const [tagIds, categoryIds, toolIds] = await Promise.all(
+          ORGANIZER_FILTERS.map(async (filter) => {
+            const values = alsoGiven[filter];
+            return values === undefined
+              ? undefined
+              : resolveOrganizerIds(
+                  api,
+                  filter === 'categories'
+                    ? 'category'
+                    : filter === 'tags'
+                      ? 'tag'
+                      : 'tool',
+                  values
+                );
+          })
+        );
+
         const data = await api.get(
           `/api/recipes${query({
             search,
-            tags,
-            categories,
-            tools,
+            tags: tagIds,
+            categories: categoryIds,
+            tools: toolIds,
             foods,
             cookbook,
             requireAllTags: require_all_tags,
@@ -123,6 +210,11 @@ export function registerRecipeReadTools(
             requireAllTools: require_all_tools,
             requireAllFoods: require_all_foods,
             orderBy: order_by,
+            // Mealie's pagination model validates this one into existence:
+            // `paginationSeed is required when orderBy is random`, HTTP 422.
+            // The tool takes no seed, so generating one here is the difference
+            // between an option that works and an option that always fails.
+            paginationSeed: order_by === 'random' ? randomUUID() : undefined,
             orderDirection: order_direction,
             page,
             perPage: per_page ?? 25,
@@ -142,7 +234,7 @@ export function registerRecipeReadTools(
       description:
         'Fetches one recipe with everything needed to cook it: ingredients, ' +
         'steps, times, yield, notes and nutrition. Accepts the slug or the UUID.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         detail: z
           .enum(['default', 'raw'])
@@ -151,8 +243,9 @@ export function registerRecipeReadTools(
             '"default" returns the cleaned-up recipe; "raw" returns Mealie\'s ' +
               'untouched object including settings, assets, extras and inline comments'
           ),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe, detail }) =>
       run(async () => {
@@ -175,7 +268,7 @@ export function registerRecipeReadTools(
         'anything on an instance that actually maintains structured foods, units ' +
         'and an on-hand pantry — on a collection of plain text ingredients it ' +
         'returns nothing. Use search_recipes there.',
-      inputSchema: {
+      inputSchema: z.object({
         foods: z
           .array(uuidParam)
           .max(50)
@@ -203,8 +296,9 @@ export function registerRecipeReadTools(
           .max(50)
           .optional()
           .describe('Number of suggestions, default 10'),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ foods, tools, max_missing_foods, max_missing_tools, limit }) =>
       run(async () => {
@@ -231,8 +325,9 @@ export function registerRecipeReadTools(
       title: 'List recipe comments',
       description:
         'Lists the comments other users of the instance left on a recipe.',
-      inputSchema: { recipe: recipeRefParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ recipe: recipeRefParam }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe }) =>
       run(async () => {
@@ -255,12 +350,13 @@ export function registerRecipeReadTools(
       description:
         'Lists the timeline of a recipe: when it was created, updated and each ' +
         'time it was cooked, with the notes attached to those events.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         page: pageParam,
         per_page: perPageParam(50),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe, page, per_page }) =>
       run(async () => {
@@ -334,19 +430,43 @@ const recipeFields = {
     )
     .max(50)
     .optional(),
-  source_url: z
-    .string()
-    .trim()
-    .max(2048)
+  // `httpUrl`, not a bare string: this was the only URL-shaped argument in the
+  // server without a scheme check, and Mealie does not validate `org_url`
+  // either. Nothing fetches it — which is why the synchronous half of the guard
+  // is enough here and no host lookup happens — but it is handed back to every
+  // reader of the recipe by `recipeDetail`, and `javascript:` or `data:` is not
+  // something this server should be willing to store and repeat.
+  source_url: httpUrl
     .optional()
-    .describe('Original source of the recipe, stored as orgURL'),
+    .describe(
+      'Original source of the recipe, an http:// or https:// address, stored as orgURL'
+    ),
 } as const;
+
+/**
+ * The fields of a recipe write that replace something a person wrote.
+ *
+ * Everything else `update_recipe` accepts is a measurement or a setting —
+ * times, servings, yield, the source link. Losing "15 min" is not the same as
+ * losing a page of instructions, and the line drawn in `annotations.ts` is the
+ * line drawn here.
+ */
+const REPLACED_RECIPE_CONTENT = [
+  'name',
+  'description',
+  'ingredients',
+  'instructions',
+  'tags',
+  'categories',
+  'notes',
+] as const;
 
 export function registerRecipeWriteTools(
   server: McpServer,
   api: MealieApi,
   config: Config,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_recipe',
@@ -355,7 +475,7 @@ export function registerRecipeWriteTools(
       description:
         'Creates a recipe from the given fields. To add one from a website use ' +
         'import_recipe_from_url instead — it fills in far more.',
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .trim()
@@ -365,8 +485,9 @@ export function registerRecipeWriteTools(
             'Recipe name. Mealie derives the slug from it and rejects a duplicate.'
           ),
         ...recipeFields,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name, ...fields }) =>
       run(async () => {
@@ -416,19 +537,75 @@ export function registerRecipeWriteTools(
       description:
         'Changes individual fields of a recipe. Only the fields given are ' +
         'touched; everything else keeps its value. Passing an empty array for ' +
-        'ingredients, instructions, tags or categories clears that list.',
-      inputSchema: {
+        'ingredients, instructions, tags or categories clears that list. ' +
+        'Replacing written content — name, description, ingredients, ' +
+        'instructions, tags, categories or notes — requires confirmation: call ' +
+        'once to receive a token, then again with that token. Changing only ' +
+        'times, servings, yield or the source link does not.',
+      inputSchema: z.object({
         recipe: recipeRefParam,
         name: z.string().trim().min(1).max(255).optional(),
         ...recipeFields,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
-    async ({ recipe, ...fields }) =>
+    async ({ recipe, confirm_token, ...fields }, mcp) =>
       run(async () => {
+        // Before the patch is built, not after: buildRecipePatch creates the
+        // tags and categories it cannot find, so asking afterwards would leave
+        // those behind even when the person says no.
+        const replacing = presentFields(fields, REPLACED_RECIPE_CONTENT);
+        if (Object.keys(replacing).length > 0) {
+          // Guarded for the reason `annotations.ts` gives and the guard did not
+          // follow: Mealie keeps no version history, so this replaces text a
+          // person wrote with nowhere to read the old version back from. It is
+          // the cheaper way to empty a recipe than delete_recipe, which was
+          // guarded from the start — one call against two.
+          const { id } = await resolveRecipe(api, recipe);
+          // The id, so a token issued for a slug cannot be replayed against a
+          // recipe that has since taken that slug — and the fingerprint of the
+          // replacing values, so it cannot be turned onto different content for
+          // the same recipe.
+          const key = `update_recipe:${id}:${contentFingerprint(replacing)}`;
+          const outcome = await approval.requestApproval(
+            server,
+            mcp,
+            confirmations,
+            {
+              what: `replace ${Object.keys(replacing).sort().join(', ')} on the recipe with id ${id}`,
+              consequence:
+                'Mealie keeps no version history. The current text is gone once ' +
+                'this is written, and there is nowhere to read it back from.',
+              resourceKey: key,
+              token: confirm_token,
+              toolName: 'update_recipe',
+              hint: 'Tick to go ahead, leave it to cancel.',
+            }
+          );
+          // A token that was sent and did not match is refused with the reason
+          // rather than answered with a fresh prompt; the sentence is the
+          // library's, so every server refuses in the same words.
+          if (outcome.decision === 'rejected') {
+            return errorResult(outcome.reason);
+          }
+          if (outcome.decision === 'declined') {
+            return errorResult(`The user declined. update_recipe did nothing.`);
+          }
+          if (outcome.decision === 'pending') return outcome.result;
+        }
+
         const patch = await buildRecipePatch(api, fields);
         if (Object.keys(patch).length === 0) {
-          return textResult('Nothing to update: no field was given.');
+          // Not an error, and the integration suite pins that: a model that
+          // resolved every field to its current value should not be punished
+          // for asking. It is an answer that says nothing changed.
+          return untrustedResult({
+            recipe,
+            changed: false,
+            note: 'Nothing to update: no field was given.',
+          });
         }
         // PATCH, never PUT. Mealie's PUT route replaces the whole 33-field recipe
         // object, so a partial body there silently drops ingredients, steps and
@@ -448,7 +625,7 @@ export function registerRecipeWriteTools(
       description:
         'Creates a copy of a recipe under a new name, leaving the original ' +
         'untouched. Useful as a starting point for a variation.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         name: z
           .string()
@@ -457,8 +634,9 @@ export function registerRecipeWriteTools(
           .max(255)
           .optional()
           .describe('Name of the copy; Mealie appends a counter when omitted'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ recipe, name }) =>
       run(async () => {
@@ -477,7 +655,7 @@ export function registerRecipeWriteTools(
       description:
         'Records when a recipe was last cooked. Mealie shows this on the recipe ' +
         'and sorts by it.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         timestamp: z
           .string()
@@ -489,8 +667,9 @@ export function registerRecipeWriteTools(
           .describe(
             'When it was made, e.g. 2026-08-18 or 2026-08-18T19:30:00Z'
           ),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: plain({ recipe: z.string(), last_made: z.string() }),
     },
     async ({ recipe, timestamp }) =>
       run(async () => {
@@ -498,9 +677,7 @@ export function registerRecipeWriteTools(
           `/api/recipes/${assertPathSegment(recipe, 'recipe')}/last-made`,
           { timestamp }
         );
-        return textResult(
-          `Recorded ${timestamp} as the last time it was made.`
-        );
+        return jsonResult({ recipe, last_made: timestamp });
       })
   );
 
@@ -512,29 +689,46 @@ export function registerRecipeWriteTools(
         'Deletes a recipe permanently, together with its comments, timeline and ' +
         'images. Requires confirmation: call once to receive a token, then again ' +
         'with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_recipe_id: z.string() }),
     },
-    async ({ recipe, confirm_token }) =>
+    async ({ recipe, confirm_token }, mcp) =>
       run(async () => {
         const { id, slug } = await resolveRecipe(api, recipe);
         // Keyed by the resolved UUID, so a token issued for a slug cannot be
         // replayed against a different recipe that has since taken that slug.
         const key = `delete_recipe:${id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `permanently delete the recipe with id ${id}, including its comments, timeline and images`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `permanently delete the recipe with id ${id}, including its comments, timeline and images`,
+            consequence:
+              'Mealie has no undelete. Cookbooks, meal plans and shopping lists ' +
+              'that reference the recipe lose it.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_recipe',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. delete_recipe did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/recipes/${assertPathSegment(slug, 'recipe')}`);
-        return textResult(`Deleted the recipe with id ${id}.`);
+        return jsonResult({ deleted_recipe_id: id });
       })
   );
 }

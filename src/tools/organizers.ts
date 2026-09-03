@@ -1,10 +1,6 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orderDirectionParam,
@@ -12,6 +8,12 @@ import {
   perPageParam,
   uuidParam,
 } from '../schema.js';
+
+import { query, type MealieApi } from '../api.js';
+import { contentFingerprint } from '../fingerprint.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 import { listFrom, organizerSummary, paginationOf } from '../shape.js';
 
 /**
@@ -62,7 +64,7 @@ export function registerOrganizerReadTools(
       description:
         'Lists the tags, categories or tools defined in the group, with their ' +
         'ids and slugs. These are the values search_recipes filters on.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         search: z
           .string()
@@ -74,8 +76,9 @@ export function registerOrganizerReadTools(
         page: pageParam,
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ kind, search, page, per_page, order_direction }) =>
       run(async () => {
@@ -101,7 +104,8 @@ export function registerOrganizerReadTools(
 export function registerOrganizerWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_organizer',
@@ -111,11 +115,12 @@ export function registerOrganizerWriteTools(
         'Creates a tag, category or recipe tool. Assigning one to a recipe with ' +
         'update_recipe already creates it on the fly — this tool is for defining ' +
         'one up front.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         name: z.string().trim().min(1).max(255),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ kind, name }) =>
       run(async () => {
@@ -131,17 +136,57 @@ export function registerOrganizerWriteTools(
       title: 'Rename a tag, category or tool',
       description:
         'Renames a tag, category or tool. Mealie regenerates the slug from the ' +
-        'new name, so anything referring to the old slug stops matching.',
-      inputSchema: {
+        'new name, so anything referring to the old slug stops matching. ' +
+        'Requires confirmation: call once to receive a token, then again with ' +
+        'that token.',
+      inputSchema: z.object({
         kind: kindParam,
         id: uuidParam.describe('UUID from list_organizers'),
         name: z.string().trim().min(1).max(255).describe('The new name'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
-    async ({ kind, id, name }) =>
+    async ({ kind, id, name, confirm_token }, mcp) =>
       run(async () => {
         const spec = KINDS[kind as Kind];
+        // The tool's own description is the argument for the guard: the rename
+        // takes the slug with it, and everything that referred to the old one —
+        // a cookbook's saved filter, a bookmark, a search someone wrote down —
+        // stops matching without any of them being touched or told.
+        const key = `update_organizer:${kind}:${id}:${contentFingerprint({ name })}`;
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `rename the ${spec.label} with id ${id}`,
+            consequence:
+              'Mealie regenerates the slug from the new name. Cookbook filters, ' +
+              'links and saved searches that refer to the old slug stop matching, ' +
+              'and the old name is not kept anywhere.',
+            // The new name is the caller's text, so it goes on its own labelled
+            // line rather than into the server's sentence above.
+            details: [{ label: 'New name', value: name }],
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'update_organizer',
+            hint: 'Tick to rename it, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. update_organizer did nothing.`
+          );
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         const data = await api.put(`${spec.path}/${id}`, { name });
         return untrustedResult({ kind, ...organizerSummary(data) });
       })
@@ -155,29 +200,45 @@ export function registerOrganizerWriteTools(
         'Deletes a tag, category or tool. The recipes themselves are kept, but ' +
         'they lose the assignment. Requires confirmation: call once to receive a ' +
         'token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         kind: kindParam,
         id: uuidParam.describe('UUID from list_organizers'),
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted: z.string(), deleted_id: z.string() }),
     },
-    async ({ kind, id, confirm_token }) =>
+    async ({ kind, id, confirm_token }, mcp) =>
       run(async () => {
         const spec = KINDS[kind as Kind];
         const key = `delete_organizer:${kind}:${id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the ${spec.label} with id ${id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              spec.consequence
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the ${spec.label} with id ${id}`,
+            consequence: spec.consequence,
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_organizer',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_organizer did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`${spec.path}/${id}`);
-        return textResult(`Deleted the ${spec.label} with id ${id}.`);
+        return jsonResult({ deleted: spec.label, deleted_id: id });
       })
   );
 }

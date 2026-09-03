@@ -1,12 +1,13 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 
 import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
 import { listFrom, shareToken, shareUrl } from '../shape.js';
 
@@ -23,12 +24,13 @@ export function registerSharingReadTools(
         'Lists the public share links that currently exist, with the recipe each ' +
         'one exposes and when it expires. Anyone holding such a link can read the ' +
         'recipe without an account.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam
           .optional()
           .describe('Restrict the result to one recipe'),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ recipe }) =>
       run(async () => {
@@ -55,7 +57,8 @@ export function registerSharingWriteTools(
   server: McpServer,
   api: MealieApi,
   config: Config,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_share_token',
@@ -65,7 +68,7 @@ export function registerSharingWriteTools(
         'Creates a link that lets anyone read one recipe without logging in. ' +
         'Requires confirmation: call once to receive a token, then again with ' +
         'that token.',
-      inputSchema: {
+      inputSchema: z.object({
         recipe: recipeRefParam,
         expires_at: z
           .string()
@@ -80,30 +83,47 @@ export function registerSharingWriteTools(
               'setting a date.'
           ),
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
-    async ({ recipe, expires_at, confirm_token }) =>
+    async ({ recipe, expires_at, confirm_token }, mcp) =>
       run(async () => {
         const { id } = await resolveRecipe(api, recipe);
         // Guarded like a destructive operation even though it destroys nothing:
         // this is the one tool that widens who can see the data, and unlike a
         // deletion the effect is invisible until someone uses the link.
         const key = `create_share_token:${id}:${expires_at ?? 'never'}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `create a public link to the recipe with id ${id}, readable by anyone who has it, ${
-                expires_at === undefined
-                  ? 'with no expiry date'
-                  : `expiring ${expires_at}`
-              }`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              'This makes the recipe readable outside the instance until the link is deleted.'
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `create a public link to the recipe with id ${id}, readable by anyone who has it, ${
+              expires_at === undefined
+                ? 'with no expiry date'
+                : `expiring ${expires_at}`
+            }`,
+            consequence:
+              'This makes the recipe readable outside the instance until the link is deleted.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'create_share_token',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. create_share_token did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         const data = await api.post('/api/shared/recipes', {
           recipeId: id,
           ...(expires_at === undefined ? {} : { expiresAt: expires_at }),
@@ -122,18 +142,52 @@ export function registerSharingWriteTools(
       title: 'Revoke a public share link',
       description:
         'Revokes a share link, so the recipe is no longer readable through it. ' +
-        'Needs no confirmation — this narrows access rather than widening it.',
-      inputSchema: {
+        'Asks a person first; where the client cannot show a dialog, call once ' +
+        'to receive a token and again with it.',
+      inputSchema: z.object({
         token_id: uuidParam.describe(
           'Share token UUID, from list_share_tokens'
         ),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({ revoked_token_id: z.string() }),
     },
-    async ({ token_id }) =>
+    async ({ token_id, confirm_token }, mcp) =>
       run(async () => {
+        // It used to say "needs no confirmation — this narrows access rather
+        // than widening it", and the direction is indeed the safe one. What is
+        // not safe is that the link cannot be reissued: a new share token is a
+        // new URL, so whoever was sent the old one simply finds a dead link,
+        // and this server cannot tell whom that was.
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `revoke the share link with id ${token_id}`,
+            consequence:
+              'Anyone holding that URL loses access immediately, and it cannot ' +
+              'be reissued — a new link is a different URL, which whoever had ' +
+              'the old one will not have.',
+            resourceKey: `delete_share_token:${token_id}`,
+            token: confirm_token,
+            toolName: 'delete_share_token',
+            hint: 'Tick to revoke it, leave it to cancel.',
+          }
+        );
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_share_token did nothing.`
+          );
+        }
+        if (outcome.decision === 'pending') return outcome.result;
+
         await api.delete(`/api/shared/recipes/${token_id}`);
-        return textResult(`Revoked the share link with id ${token_id}.`);
+        return jsonResult({ revoked_token_id: token_id });
       })
   );
 }

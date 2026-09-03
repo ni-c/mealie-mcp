@@ -1,10 +1,6 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import { marked } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orderDirectionParam,
@@ -12,6 +8,11 @@ import {
   perPageParam,
   uuidParam,
 } from '../schema.js';
+
+import { query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, run, untrustedResult } from '../result.js';
 import { foodSummary, listFrom, paginationOf, unitSummary } from '../shape.js';
 
 export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
@@ -24,13 +25,14 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         'Mealie matches ingredient lines against. Many instances leave this ' +
         'empty and keep ingredients as plain text; an empty result means exactly ' +
         'that, not a failure.',
-      inputSchema: {
+      inputSchema: z.object({
         search: z.string().trim().min(1).max(200).optional(),
         page: pageParam,
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -57,13 +59,14 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
       description:
         'Lists the measurement units of the group, with their abbreviations. ' +
         'Like foods, this is empty on an instance that never seeded them.',
-      inputSchema: {
+      inputSchema: z.object({
         search: z.string().trim().min(1).max(200).optional(),
         page: pageParam,
         per_page: perPageParam(100),
         order_direction: orderDirectionParam,
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ search, page, per_page, order_direction }) =>
       run(async () => {
@@ -92,7 +95,7 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
         'and reports how confident Mealie is about each part. Nothing is saved. ' +
         'Use it to check how a line will be understood before writing it to a ' +
         'recipe or a shopping list.',
-      inputSchema: {
+      inputSchema: z.object({
         ingredients: z
           .array(z.string().trim().min(1).max(1000))
           .min(1)
@@ -106,8 +109,9 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
               'Mealie also offers an "openai" parser; it is not exposed here ' +
               'because it sends every line to an external provider.'
           ),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ ingredients, parser }) =>
       run(async () => {
@@ -123,7 +127,8 @@ export function registerFoodReadTools(server: McpServer, api: MealieApi): void {
 export function registerFoodWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_food',
@@ -132,15 +137,16 @@ export function registerFoodWriteTools(
       description:
         'Adds a food to the group vocabulary so ingredient lines can be matched ' +
         'against it.',
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().trim().min(1).max(255),
         plural_name: z.string().trim().min(1).max(255).optional(),
         description: z.string().max(2000).optional(),
         label_id: uuidParam
           .optional()
           .describe('Shopping-list label to file this food under'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name, plural_name, description, label_id }) =>
       run(async () => {
@@ -159,7 +165,7 @@ export function registerFoodWriteTools(
     {
       title: 'Create unit',
       description: 'Adds a measurement unit to the group vocabulary.',
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().trim().min(1).max(255),
         plural_name: z.string().trim().min(1).max(255).optional(),
         abbreviation: z.string().trim().min(1).max(50).optional(),
@@ -174,8 +180,9 @@ export function registerFoodWriteTools(
             'Show quantities as fractions (½ cup) rather than decimals'
           ),
         description: z.string().max(2000).optional(),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({
       name,
@@ -200,8 +207,8 @@ export function registerFoodWriteTools(
       })
   );
 
-  registerMerge(server, api, confirmations, 'food');
-  registerMerge(server, api, confirmations, 'unit');
+  registerMerge(server, api, confirmations, approval, 'food');
+  registerMerge(server, api, confirmations, approval, 'unit');
 }
 
 /**
@@ -214,6 +221,7 @@ function registerMerge(
   server: McpServer,
   api: MealieApi,
   confirmations: ConfirmationStore,
+  approval: Approver,
   kind: 'food' | 'unit'
 ): void {
   const plural = kind === 'food' ? 'foods' : 'units';
@@ -225,7 +233,7 @@ function registerMerge(
         `Points every ingredient that uses one ${kind} at another one and ` +
         `deletes the source ${kind}. Requires confirmation: call once to ` +
         'receive a token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         from_id: uuidParam.describe(
           `UUID of the ${kind} to merge away — this one is deleted`
         ),
@@ -233,23 +241,37 @@ function registerMerge(
           `UUID of the ${kind} to keep — references end up here`
         ),
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
-    async ({ from_id, to_id, confirm_token }) =>
+    async ({ from_id, to_id, confirm_token }, mcp) =>
       run(async () => {
         // Not setResourceKey's sorted fingerprint: the order IS the meaning here.
         const key = `merge_${plural}:${from_id}->${to_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `merge the ${kind} ${from_id} into ${to_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              `The ${kind} ${from_id} is deleted and every reference to it is rewritten. This cannot be undone.`
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `merge the ${kind} ${from_id} into ${to_id}`,
+            consequence: `The ${kind} ${from_id} is deleted and every reference to it is rewritten. This cannot be undone.`,
+            resourceKey: key,
+            token: confirm_token,
+            toolName: `merge_${plural}`,
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. merge_${plural} did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         const body =
           kind === 'food'
             ? { fromFood: from_id, toFood: to_id }

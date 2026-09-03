@@ -7,6 +7,7 @@
 [![license](https://img.shields.io/npm/l/%40ni-c%2Fmealie-mcp)](LICENSE)
 [![container](https://img.shields.io/badge/ghcr.io-ni--c%2Fmealie--mcp-blue)](https://github.com/ni-c/mealie-mcp/pkgs/container/mealie-mcp)
 [![docs](https://img.shields.io/badge/docs-mealie--mcp.ni--c.de-informational)](https://mealie-mcp.ni-c.de)
+[![HTTP • via mcp-hub](https://img.shields.io/badge/HTTP-via%20mcp--hub-6f42c1)](https://mcp-hub.ni-c.de)
 [![sponsor](https://img.shields.io/badge/sponsor-ni--c-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ni-c)
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
@@ -36,9 +37,22 @@ reliably from eight than from fifty-two — see
 
 Mealie's REST API has 259 operations across 175 paths. This server exposes **52
 tools**, chosen so that the common tasks are one call and the dangerous surface is
-not reachable at all. Verified against **Mealie v3.22.0**; the source of truth for
+not reachable at all. Verified against **Mealie v3.25.0**; the source of truth for
 every request shape is the `GET /openapi.json` of a running instance, not the
 published documentation, which is out of date in several places.
+
+## What makes it different
+
+**Fifty-two curated tools out of 259 API operations.** Mealie's REST API is far
+larger than a model should reach into; what is here covers the common tasks in one
+call — search, read and import recipes, keep tags and categories tidy, plan meals,
+build shopping lists, manage cookbooks and ratings.
+
+**`update_recipe` uses PATCH, not PUT.** Mealie's replace route silently drops
+recipe fields that were not sent; only the fields you name change here.
+
+**The dangerous surface is unreachable.** No admin routes, no token minting, no
+webhooks and no outbound-HTTP triggers, whatever the token would allow.
 
 ## Requirements
 
@@ -51,11 +65,12 @@ published documentation, which is out of date in several places.
 | ------------------------ | -------- | ---------------------------------------------------------------------------------- |
 | `MEALIE_URL`             | yes      | Base URL, e.g. `https://mealie.example.com`                                        |
 | `MEALIE_API_TOKEN`       | yes      | Token from Settings → API Tokens. It acts as the user who created it.              |
-| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 17 read tools only                                    |
+| `MEALIE_READ_ONLY`       | no       | Exactly `true` registers the 18 read tools only                                    |
 | `MEALIE_ACCEPT_LANGUAGE` | no       | e.g. `de-DE`; localises unit and label names                                       |
 | `MEALIE_INSECURE_TLS`    | no       | Exactly `true` accepts a self-signed certificate, scoped to this connection        |
 | `MEALIE_ALLOW_TOOLS`     | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
 | `MEALIE_DENY_TOOLS`      | no       | Same syntax; removed from whatever `MEALIE_ALLOW_TOOLS` left                       |
+| `ELICITATION`            | no       | `false` replaces the approval dialog with the two-call token. **Not prefixed**     |
 
 The two booleans are compared against the literal string `true`, so a typo leaves
 them **off** — check the startup line on stderr, which reports the mode in effect.
@@ -85,9 +100,20 @@ If you run several of these servers at once, [mcp-hub](https://mcp-hub.ni-c.de)
 is the other answer — its `/hub` endpoint replaces every server's tools with six
 meta-tools.
 
-## Install
+## Installation
 
-Claude Desktop, or any MCP client that takes a JSON config:
+### Claude Code
+
+```sh
+claude mcp add mealie \
+  -e MEALIE_URL=https://mealie.example.com \
+  -e MEALIE_API_TOKEN=… \
+  -- npx -y @ni-c/mealie-mcp
+```
+
+### Claude Desktop
+
+The same entry works in any MCP client that takes a JSON config:
 
 ```json
 {
@@ -104,14 +130,9 @@ Claude Desktop, or any MCP client that takes a JSON config:
 }
 ```
 
-```sh
-claude mcp add mealie \
-  -e MEALIE_URL=https://mealie.example.com \
-  -e MEALIE_API_TOKEN=… \
-  -- npx -y @ni-c/mealie-mcp
-```
+### Codex
 
-Codex (`~/.codex/config.toml`):
+`~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.mealie]
@@ -123,7 +144,15 @@ MEALIE_URL = "https://mealie.example.com"
 MEALIE_API_TOKEN = "…"
 ```
 
-Or as a container:
+### MCP Inspector
+
+To poke at the tools interactively:
+
+```sh
+npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
+```
+
+### Docker
 
 ```sh
 docker run --rm -i \
@@ -132,13 +161,53 @@ docker run --rm -i \
   ghcr.io/ni-c/mealie-mcp
 ```
 
-To poke at the tools interactively:
+### Through mcp-hub
 
-```sh
-npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
+A client that cannot spawn a local process — ChatGPT connectors, Claude on the web,
+Cursor, LibreChat — reaches mealie-mcp through [mcp-hub](https://mcp-hub.ni-c.de): one
+container serves many stdio MCP servers over Streamable HTTP, with an OAuth 2.1 login
+behind a single password and long-lived tokens for the clients that cannot do OAuth. Its
+`/hub` endpoint puts every server behind six meta-tools, so one connector reaches all of
+them without N×tool schemas in the model's context, and it speaks both protocol revisions
+— a question this server asks travels through it to the person at the far end.
+
+Its `/config/mcp.json` uses Claude Code's format, so the entry is the one you already
+have:
+
+```json
+{
+  "mcpServers": {
+    "mealie": {
+      "command": "npx",
+      "args": ["-y", "@ni-c/mealie-mcp"],
+      "env": { "MEALIE_ALLOW_TOOLS": "essential" },
+      "denyTools": ["delete_*"]
+    }
+  }
+}
 ```
 
+`allowTools` and `denyTools` there are the hub's **own** per-server filter, which is not
+the same thing as `*_ALLOW_TOOLS` in `env` — the difference, and the mistake it invites,
+are in the [client guide](https://mealie-mcp.ni-c.de/guide/clients#through-mcp-hub).
+
 ## Tools
+
+Every tool declares an `outputSchema` and answers with `structuredContent`
+alongside the text block, so a client can use the result without parsing prose.
+Nine tools that answered with a sentence — _"Deleted the recipe with id …"_ —
+now answer with the fields as well.
+
+Most tools carry `untrusted: true` and `source: "mealie"` as fields: recipes are
+routinely scraped from arbitrary websites and comments come from other users of
+the instance. The ten without it answer with an id this server was given — or,
+for `get_about`, a version string and the permission flags of the account it
+authenticates as, which are facts the model should act on.
+
+Mealie's records are described as open objects with the top-level keys this
+server builds. A self-hosted Mealie is any release, and the SDK validates each
+result against its schema before it goes out — a strict shape would turn a field
+a release adds into a tool that fails outright.
 
 **Recipes** — `search_recipes`, `get_recipe`, `suggest_recipes`, `create_recipe`,
 `update_recipe`, `duplicate_recipe`, `set_recipe_last_made`, `delete_recipe` 🔒
@@ -166,11 +235,14 @@ npx @modelcontextprotocol/inspector npx -y @ni-c/mealie-mcp
 **Notes and sharing** — `set_recipe_rating`, `add_recipe_comment`,
 `delete_recipe_comment` 🔒, `list_recipe_comments`, `list_recipe_timeline`,
 `create_timeline_event`, `list_share_tokens`, `create_share_token` 🔒,
-`delete_share_token`
+`delete_share_token` 🔒
 
 **Instance** — `get_about`
 
-🔒 needs a confirmation token: call once to receive one, then again with it.
+🔒 asks a person through MCP elicitation — a dialog the model cannot answer on its
+behalf. Where the client cannot show one it falls back to a two-call
+`confirm_token`. See
+[Asking a person](https://mealie-mcp.ni-c.de/guide/approval).
 
 Recipes can be addressed by slug or by UUID everywhere — Mealie splits its
 identifier space between the two, and the tools resolve whichever they are given.
@@ -212,6 +284,11 @@ tags. `update_recipe` uses `PATCH`.
 See [SECURITY.md](SECURITY.md) for the trust model and how to report a
 vulnerability.
 
+## Documentation
+
+The full guide, tool reference and security notes live at
+**[mealie-mcp.ni-c.de](https://mealie-mcp.ni-c.de)** (source in [`docs/`](docs/)).
+
 ## Development
 
 ```sh
@@ -247,6 +324,13 @@ version into both `server.json` package entries, publishes to the MCP registry, 
 cuts the GitHub release from the changelog section. `ci.yml` pushes the multi-arch
 container image to GHCR in parallel.
 
+## Contributing
+
+Issues, discussions and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities please use
+[private reporting](https://github.com/ni-c/mealie-mcp/security/advisories/new)
+rather than a public issue; the policy is in [SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT
+[MIT](LICENSE) © Willi Thiel

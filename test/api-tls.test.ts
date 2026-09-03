@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // The insecure-TLS path uses undici's own fetch so the relaxed dispatcher can be
 // scoped to this one connection. Mocking the module is the only way to observe
 // that from a test: an ESM namespace cannot be spied on in place.
+// The parameters are declared, though unused: without them `mock.calls` types
+// as a zero-length tuple and reading the `init` argument below is a type error
+// on an argument the code really does pass.
 const undiciFetch = vi.fn(
-  async () =>
+  async (_url?: unknown, _init?: unknown) =>
     new Response('{"ok":true}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -25,6 +28,9 @@ const config: Config = {
   acceptLanguage: undefined,
   insecureTls: false,
   readOnly: false,
+  elicitation: true,
+  allowTools: undefined,
+  denyTools: undefined,
 };
 
 afterEach(() => {

@@ -7,16 +7,16 @@ Thanks for taking the time. Small, focused changes with tests land fastest.
 ```sh
 git clone https://github.com/ni-c/mealie-mcp.git && cd mealie-mcp
 npm install
-npm test          # 239 unit tests, no network and no Mealie instance needed
+npm test          # 292 unit tests, no network and no Mealie instance needed
 npm run build
 ```
 
 ## Expectations
 
 - **Tests.** Behaviour changes come with a test that fails without the change. CI
-  runs lint, build and tests on Node 22 and 24, plus `npm audit`, CodeQL with the
-  `security-and-quality` query pack, and a Trivy scan of the container image on
-  amd64 and arm64.
+  runs lint, build and tests on Node 22 and 24, the integration suite against a
+  real Mealie, plus `npm audit`, CodeQL with the `security-and-quality` query
+  pack, and a Trivy scan of the container image on amd64 and arm64.
 - **Comments** explain constraints the code cannot show — not what the next line
   does. Most comments in `src/` document a Mealie API behaviour that is not in the
   docs; keep that going.
@@ -25,77 +25,53 @@ npm run build
   against, or the one your change might open, in the PR text.
 - **No new runtime dependencies** without a very good reason; the small tree is a
   feature.
-- Run `npm run lint` before pushing — it checks both eslint and prettier, and
+- Run `npm run lint` before pushing — it checks both oxlint and prettier, and
   prettier also validates the YAML, JSON and Markdown files.
 
-## Verifying against a real Mealie
+## Running the integration suite
 
-The unit tests mock `fetch`, so they cannot catch a change in Mealie's own
-behaviour. `scripts/verify-live.mjs` exercises **every** tool against a running
-instance, including the deletes and both halves of every confirmation flow.
-
-**Never point it at an instance whose recipes matter.** Use a disposable one:
-
-```sh
-mkdir -p /tmp/mealie-test/data
-cat > /tmp/mealie-test/compose.yml <<'YAML'
-services:
-  mealie-test:
-    image: ghcr.io/mealie-recipes/mealie:v3.22.0   # match your real instance
-    ports: ['127.0.0.1:9930:9000']
-    environment:
-      ALLOW_SIGNUP: 'false'
-      PUID: '1000'
-      PGID: '1000'
-      BASE_URL: http://localhost:9930
-    volumes: ['/tmp/mealie-test/data:/app/data']
-YAML
-docker compose -f /tmp/mealie-test/compose.yml up -d
-```
-
-Mealie seeds a default admin on first start and **ignores `DEFAULT_EMAIL` /
-`DEFAULT_PASSWORD`** — log in as `changeme@example.com` / `MyPassword`.
-
-Create a non-admin user to mirror a sensible deployment, then mint its token. Note
-that `POST /api/admin/users` wants the group and household by **name**, not by UUID:
+The unit tests mock `fetch`, so they check that this server does what its author
+believed Mealie does. The integration suite checks what Mealie does. It spawns
+the built server over stdio against a throwaway Mealie in Docker and calls
+**every tool in the catalogue** — the deletes and merges included, and both
+halves of every confirmation — so the backend has to be one nobody wants:
+`test/integration/compose.yml` binds to `127.0.0.1` only, and the harness
+refuses any backend URL that is not on this machine.
 
 ```sh
-B=http://127.0.0.1:9930
-ADMIN=$(curl -s -X POST "$B/api/auth/token" \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode username=changeme@example.com \
-  --data-urlencode password=MyPassword | jq -r .access_token)
-
-curl -s -X POST "$B/api/admin/users" -H "Authorization: Bearer $ADMIN" \
-  -H 'Content-Type: application/json' -d '{
-    "username":"cook","fullName":"Cook","email":"cook@example.com",
-    "password":"MyPassword","admin":false,"group":"Home","household":"Family",
-    "canOrganize":true,"canManage":false,"canInvite":false,"advanced":true}'
-
-COOK=$(curl -s -X POST "$B/api/auth/token" \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode username=cook@example.com \
-  --data-urlencode password=MyPassword | jq -r .access_token)
-
-TOKEN=$(curl -s -X POST "$B/api/users/api-tokens" -H "Authorization: Bearer $COOK" \
-  -H 'Content-Type: application/json' -d '{"name":"verify"}' | jq -r .token)
+npm run build     # the suite runs dist/index.js, not src/
+docker compose -f test/integration/compose.yml up -d --wait
+npm run test:integration
+docker compose -f test/integration/compose.yml down -v
 ```
 
-Then:
+`test/integration/bootstrap.ts` replaces the seven curl commands that used to
+live in this file. Two things it knows that Mealie does not document:
+`DEFAULT_EMAIL` and `DEFAULT_PASSWORD` are ignored — the seeded admin is always
+`changeme@example.com` / `MyPassword` — and `POST /api/admin/users` wants the
+group and household by **name**, not by UUID.
+
+**One tool is not covered:** `import_recipe_from_url` needs outbound internet
+from the Mealie container to scrape a public recipe site. Making every pull
+request depend on a third party staying up, and on being polite to them, is not
+worth it for a scraper that is Mealie's rather than this server's. It is
+verified by hand:
 
 ```sh
-npm run build
-MEALIE_URL=$B MEALIE_API_TOKEN=$TOKEN node scripts/verify-live.mjs
+# against a running sandbox, with MEALIE_URL and MEALIE_API_TOKEN set
+npx @modelcontextprotocol/inspector node dist/index.js
+# import_recipe_from_url { "url": "https://www.bbcgoodfood.com/recipes/classic-pancakes",
+#                          "include_tags": true }
 ```
 
-It prints one line per call, reports any tool it did not reach, and exits non-zero
-if any call produced an unexpected outcome. Two of its checks need real outbound
-internet from the Mealie container, because they import a recipe from a public
-site. Tear the instance down afterwards:
+The suite says so out loud rather than quietly reporting full coverage: the
+skip carries that reason, and if the tool is ever exercised the assertion fails
+until the reason is removed.
 
-```sh
-docker compose -f /tmp/mealie-test/compose.yml down -v && rm -rf /tmp/mealie-test
-```
+CI runs the suite on every pull request against the pinned image, and weekly
+against `ghcr.io/mealie-recipes/mealie:v3` — the first catches regressions here,
+the second catches Mealie moving. It is deliberately not a gate on `publish`;
+see the comment in `ci.yml`.
 
 ## Questions and bugs
 

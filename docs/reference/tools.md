@@ -5,11 +5,18 @@ All fifty-two are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
 curated eight — see
 [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
 
-One section per tool: what it does, its parameters, and — for destructive tools —
-the two-step confirmation flow.
+One section per tool: what it does, its parameters, and — for the guarded ones —
+what a person is asked.
 
-52 tools in total. The 17 read tools are always registered; the 35 write and
+52 tools in total. The 18 read tools are always registered; the 34 write and
 import tools are omitted when `MEALIE_READ_ONLY=true`.
+
+Every tool declares an `outputSchema` and answers with `structuredContent` beside
+the text block, so a client can use a result without parsing prose. Most carry
+`untrusted: true` and `source: "mealie"` as fields of that object — recipes are
+routinely scraped from arbitrary websites. The ten without the marker answer
+with an id this server was given, or with `get_about`’s version and permission
+flags.
 
 ::: info Recipe references: slug or UUID
 Wherever a parameter is described as a *recipe slug or UUID*, both work — Mealie
@@ -18,12 +25,20 @@ timeline events use the UUID), and the tools resolve whichever they are given.
 Both are returned by `search_recipes`.
 :::
 
-::: warning Confirmation tokens
-Tools marked **Requires a confirmation token** run a two-step flow: call once to
-receive a token together with a description of what is about to happen, then call
-again with the same arguments plus `confirm_token` to perform it. Tokens are
-single-use, expire after a few minutes and are bound to the specific target.
+::: warning Tools that ask a person
+Tools marked **Asks a person first** raise a dialog through MCP elicitation, which
+the model cannot answer on their behalf. Where the client cannot show one they fall
+back to a two-call flow: call once to receive a `confirm_token` together with a
+description of what is about to happen, then call again with the same arguments plus
+that token. Tokens are single-use, expire after a few minutes, and either way the
+approval is bound to the specific target. `ELICITATION=false` takes the fallback
+deliberately — see [Asking a person](/guide/approval).
 :::
+
+Every tool declares all four MCP annotations — `readOnlyHint`, `destructiveHint`,
+`idempotentHint`, `openWorldHint`. `openWorldHint` is `true` only where Mealie is
+made to talk to somebody outside itself: `import_recipe_from_url`,
+`preview_recipe_url` and `import_recipe_from_image`.
 
 ## Recipes
 
@@ -135,14 +150,14 @@ by it.
 ### delete_recipe
 
 Deletes a recipe permanently, together with its comments, timeline and images.
-**Requires a confirmation token: call once to receive one, call again with it.**
+**Asks a person first.**
 The token is keyed to the resolved UUID, so a token issued for a slug cannot be
 replayed against a different recipe that has since taken that slug.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `recipe` | string | yes | Recipe slug or UUID |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ## Import
 
@@ -237,14 +252,13 @@ so anything referring to the old slug stops matching.
 ### delete_organizer
 
 Deletes a tag, category or tool. The recipes themselves are kept, but they lose
-the assignment. **Requires a confirmation token: call once to receive one, call
-again with it.**
+the assignment. **Asks a person first.**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `kind` | enum | yes | `tag` \| `category` \| `tool` |
 | `id` | string (UUID) | yes | UUID from `list_organizers` |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ## Ingredients
 
@@ -276,15 +290,14 @@ it.
 ### merge_foods
 
 Points every ingredient that uses one food at another one and deletes the source
-food. **Requires a confirmation token: call once to receive one, call again with
-it.** The token is bound to the ordered pair — swapping the two arguments would
+food. **Asks a person first.** The token is bound to the ordered pair — swapping the two arguments would
 destroy the wrong record, so a token for one direction cannot confirm the other.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `from_id` | string (UUID) | yes | UUID of the food to merge away — this one is deleted |
 | `to_id` | string (UUID) | yes | UUID of the food to keep — references end up here |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### list_units
 
@@ -314,14 +327,13 @@ Adds a measurement unit to the group vocabulary.
 ### merge_units
 
 Points every ingredient that uses one unit at another one and deletes the source
-unit. **Requires a confirmation token: call once to receive one, call again with
-it.** As with `merge_foods`, the token is bound to the merge direction.
+unit. **Asks a person first.** As with `merge_foods`, the token is bound to the merge direction.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `from_id` | string (UUID) | yes | UUID of the unit to merge away — this one is deleted |
 | `to_id` | string (UUID) | yes | UUID of the unit to keep — references end up here |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### parse_ingredients
 
@@ -398,12 +410,12 @@ route is a full-object `PUT`.
 ### delete_mealplan_entry
 
 Removes one entry from the meal plan. The recipe itself is not touched.
-**Requires a confirmation token: call once to receive one, call again with it.**
+**Asks a person first.**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `entry_id` | number | yes | Plan entry id from `list_mealplans` — an integer, not a UUID |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ## Shopping
 
@@ -435,13 +447,12 @@ Creates an empty shopping list in the household.
 
 ### delete_shopping_list
 
-Deletes a shopping list and everything on it. **Requires a confirmation token:
-call once to receive one, call again with it.**
+Deletes a shopping list and everything on it. **Asks a person first.**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `list_id` | string (UUID) | yes | Shopping list UUID, from `list_shopping_lists` |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### add_shopping_list_items
 
@@ -472,15 +483,14 @@ receive). At least one of `checked`, `quantity` or `note` must be given.
 ### delete_shopping_list_items
 
 Removes items from a shopping list for good. To merely tick something off, use
-`update_shopping_list_items` with `checked=true`. **Requires a confirmation
-token: call once to receive one, call again with it.** The token is bound to a
-fingerprint of the whole sorted id set, so a confirmation for three items cannot
-delete a fourth appended between the two calls.
+`update_shopping_list_items` with `checked=true`. **Asks a person first.** The
+approval is bound to a fingerprint of the whole sorted id set, so one for three
+items cannot delete a fourth appended between the two calls.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `item_ids` | string[] (UUIDs) | yes | Item UUIDs from `get_shopping_list` (1–100) |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### add_recipe_to_shopping_list
 
@@ -544,13 +554,12 @@ query language and is easiest to build in the web UI.
 ### delete_cookbook
 
 Deletes a cookbook. The recipes it matched are not touched — a cookbook is only
-a saved filter. **Requires a confirmation token: call once to receive one, call
-again with it.**
+a saved filter. **Asks a person first.**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `cookbook_id` | string (UUID) | yes | Cookbook UUID, from `list_cookbooks` |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ## Notes & sharing
 
@@ -578,13 +587,12 @@ are attributed to the user the API token belongs to.
 
 ### delete_recipe_comment
 
-Deletes a comment. **Requires a confirmation token: call once to receive one,
-call again with it.**
+Deletes a comment. **Asks a person first.**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `comment_id` | string (UUID) | yes | Comment UUID, from `list_recipe_comments` |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### list_recipe_comments
 
@@ -639,16 +647,22 @@ tool that widens who can see the data.
 | --- | --- | --- | --- |
 | `recipe` | string | yes | Recipe slug or UUID |
 | `expires_at` | string | no | ISO 8601 date or date-time when the link stops working. Omitted, it never expires — prefer setting a date |
-| `confirm_token` | string | no | Confirmation token from the first call; omit on the first call |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### delete_share_token
 
-Revokes a share link, so the recipe is no longer readable through it. Needs no
-confirmation — this narrows access rather than widening it.
+Revokes a share link, so the recipe is no longer readable through it. **Asks a
+person first.**
+
+It used to say it needed no confirmation, on the grounds that revoking narrows
+access rather than widening it. The direction is the safe one; what is not is that
+the link cannot be reissued — a new share token is a different URL, so whoever was
+sent the old one finds a dead link, and this server cannot tell whom that was.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `token_id` | string (UUID) | yes | Share token UUID, from `list_share_tokens` |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ## Instance
 

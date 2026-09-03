@@ -4,9 +4,10 @@
 | ------------------------ | -------- | ------- | ---------------------------------------------------------------------------------------- |
 | `MEALIE_URL`             | yes      | —       | Base URL of the Mealie instance, e.g. `https://mealie.example.com`                       |
 | `MEALIE_API_TOKEN`       | yes      | —       | API token from Settings → API Tokens; acts as the user who created it                    |
-| `MEALIE_READ_ONLY`       | no       | `false` | Exactly `true` registers only the 17 read tools                                          |
+| `MEALIE_READ_ONLY`       | no       | `false` | Exactly `true` registers only the 18 read tools                                          |
 | `MEALIE_ACCEPT_LANGUAGE` | no       | —       | Sent as `accept-language`, e.g. `de-DE`; localises unit and label names                  |
 | `MEALIE_INSECURE_TLS`    | no       | `false` | Exactly `true` accepts a self-signed certificate — scoped to this connection only        |
+| `ELICITATION`            | no       | `true`  | `false` replaces the approval dialog with the two-call token. **Not prefixed**            |
 
 ::: warning The booleans compare against the literal string `true`
 `MEALIE_READ_ONLY` and `MEALIE_INSECURE_TLS` are only on when their value is
@@ -14,6 +15,26 @@ exactly the string `true`. `1`, `yes`, `True` — any typo — fails **off**. Th
 startup banner on stderr reports the mode actually in effect; check it after
 changing the configuration.
 :::
+
+## `ELICITATION`
+
+Whether a client that *can* show a dialog is asked before a guarded tool acts.
+Default `true`. `false` takes the two-call-token path instead — it does not remove
+the guard, and a server started with it off prints one line saying so.
+
+Two ways it differs from every other variable here:
+
+- **No prefix.** One `export ELICITATION=false` reaches every MCP server in the
+  same environment, not just this one. That is the point of it and also its risk;
+  see [Asking a person](/guide/approval).
+- **Fatal on anything else.** Where the `MEALIE_*` booleans fail *off* on a typo,
+  this one stops the server with exit code 1. It is the only variable here that
+  defaults to *on*, and a typo that fell back to the default would leave the
+  dialog running while you believed it was off.
+
+Values are trimmed and matched case-insensitively. It is read *after*
+`MEALIE_API_TOKEN` is deleted from `process.env`, so the fatal path cannot leave
+the token sitting there for a crash reporter.
 
 ## `MEALIE_URL`
 
@@ -41,7 +62,7 @@ read, so child processes cannot pick it up out of `/proc/<pid>/environ`.
 
 ## `MEALIE_READ_ONLY`
 
-Exactly `true` registers only the 17 read tools; the 35 write and import tools
+Exactly `true` registers only the 18 read tools; the 34 write and import tools
 are not registered at all, so a model cannot call them and does not see them in
 the catalog.
 

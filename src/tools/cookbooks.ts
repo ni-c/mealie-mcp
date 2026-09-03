@@ -1,10 +1,6 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { assertPathSegment, query, type MealieApi } from '../api.js';
-import { confirmationPrompt, type ConfirmationStore } from '../confirm.js';
-import { run, textResult, untrustedResult } from '../result.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   pageParam,
@@ -18,6 +14,11 @@ import {
   recipeSummary,
 } from '../shape.js';
 
+import { assertPathSegment, query, type MealieApi } from '../api.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
+import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
+
 export function registerCookbookReadTools(
   server: McpServer,
   api: MealieApi
@@ -29,8 +30,9 @@ export function registerCookbookReadTools(
       description:
         'Lists the cookbooks of the household. A cookbook is a saved filter over ' +
         'the recipe collection, not a fixed set of recipes.',
-      inputSchema: { page: pageParam, per_page: perPageParam(50) },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -54,7 +56,7 @@ export function registerCookbookReadTools(
       description:
         'Fetches a cookbook and the recipes it currently matches. Accepts the ' +
         'slug or the UUID.',
-      inputSchema: {
+      inputSchema: z.object({
         cookbook: z
           .string()
           .trim()
@@ -62,8 +64,9 @@ export function registerCookbookReadTools(
           .max(255)
           .describe('Cookbook slug or UUID, from list_cookbooks'),
         per_page: perPageParam(50),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ cookbook, per_page }) =>
       run(async () => {
@@ -86,7 +89,8 @@ export function registerCookbookReadTools(
 export function registerCookbookWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_cookbook',
@@ -95,8 +99,10 @@ export function registerCookbookWriteTools(
       description:
         'Creates a cookbook — a named, saved view of the recipe collection. ' +
         'Without a filter it matches every recipe; the filter itself is written ' +
-        "in Mealie's own query language and is easiest to build in the web UI.",
-      inputSchema: {
+        "in Mealie's own query language and is easiest to build in the web UI. " +
+        'A private cookbook is created straight away; is_public requires ' +
+        'confirmation, because it is a publishing step.',
+      inputSchema: z.object({
         name: z.string().trim().min(1).max(255),
         description: z.string().max(2000).optional(),
         query_filter: z
@@ -112,13 +118,61 @@ export function registerCookbookWriteTools(
           .boolean()
           .optional()
           .describe(
-            'Make the cookbook readable without a login, default false'
+            'Make the cookbook readable without a login, default false. ' +
+              'Requires confirmation: call once to receive a token, then again ' +
+              'with that token.'
           ),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
-    async ({ name, description, query_filter, is_public }) =>
+    async (
+      { name, description, query_filter, is_public, confirm_token },
+      mcp
+    ) =>
       run(async () => {
+        // The same reason create_share_token gives, applied to the other tool
+        // that widens who can see something: this one is a publishing step, and
+        // like the share link its effect is invisible until somebody uses it.
+        // What it exposes is narrower — Mealie's public recipe controller also
+        // wants `settings.public` on each recipe and a non-private group, so the
+        // recipes themselves stay closed — but the cookbook's name, description
+        // and saved filter go out, and there is no update_cookbook to take it
+        // back with: an accidentally public cookbook can only be deleted.
+        if (is_public === true) {
+          const key = `create_cookbook:${name}:public`;
+          const outcome = await approval.requestApproval(
+            server,
+            mcp,
+            confirmations,
+            {
+              what: 'create a cookbook that anyone can read without logging in',
+              consequence:
+                'Its name, description and saved filter become readable outside ' +
+                'the instance. There is no tool to make it private again — an ' +
+                'unwanted public cookbook has to be deleted.',
+              details: [{ label: 'Cookbook name', value: name }],
+              resourceKey: key,
+              token: confirm_token,
+              toolName: 'create_cookbook',
+              hint: 'Tick to publish it, leave it to cancel.',
+            }
+          );
+          // A token that was sent and did not match is refused with the reason
+          // rather than answered with a fresh prompt; the sentence is the
+          // library's, so every server refuses in the same words.
+          if (outcome.decision === 'rejected') {
+            return errorResult(outcome.reason);
+          }
+          if (outcome.decision === 'declined') {
+            return errorResult(
+              `The user declined. create_cookbook did nothing.`
+            );
+          }
+          if (outcome.decision === 'pending') return outcome.result;
+        }
+
         const data = await api.post('/api/households/cookbooks', {
           name,
           description: description ?? '',
@@ -139,27 +193,42 @@ export function registerCookbookWriteTools(
         'Deletes a cookbook. The recipes it matched are not touched — a cookbook ' +
         'is only a saved filter. Requires confirmation: call once to receive a ' +
         'token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         cookbook_id: uuidParam.describe('Cookbook UUID, from list_cookbooks'),
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_cookbook_id: z.string() }),
     },
-    async ({ cookbook_id, confirm_token }) =>
+    async ({ cookbook_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_cookbook:${cookbook_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the cookbook with id ${cookbook_id}`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes,
-              'The recipes it matched are kept; only the saved view is deleted.'
-            )
-          );
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the cookbook with id ${cookbook_id}`,
+            consequence:
+              'The recipes it matched are kept; only the saved view is deleted.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_cookbook',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
         }
+        if (outcome.decision === 'declined') {
+          return errorResult(`The user declined. delete_cookbook did nothing.`);
+        }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/cookbooks/${cookbook_id}`);
-        return textResult(`Deleted the cookbook with id ${cookbook_id}.`);
+        return jsonResult({ deleted_cookbook_id: cookbook_id });
       })
   );
 }

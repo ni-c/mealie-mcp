@@ -14,6 +14,9 @@ const config: Config = {
   acceptLanguage: undefined,
   insecureTls: false,
   readOnly: false,
+  elicitation: true,
+  allowTools: undefined,
+  denyTools: undefined,
 };
 
 afterEach(() => {
@@ -27,7 +30,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function mockFetch(response: Response) {
+function respondWith(response: Response) {
   return vi
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async () => Promise.resolve(response));
@@ -88,7 +91,7 @@ describe('query', () => {
 
 describe('MealieApi.request', () => {
   it('sends the bearer token and refuses redirects', async () => {
-    const spy = mockFetch(jsonResponse({ ok: true }));
+    const spy = respondWith(jsonResponse({ ok: true }));
     await new MealieApi(config).get('/api/app/about');
     const [url, init] = spy.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://mealie.example.com/api/app/about');
@@ -100,7 +103,7 @@ describe('MealieApi.request', () => {
   });
 
   it('omits accept-language unless configured', async () => {
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     await new MealieApi(config).get('/api/app/about');
     expect(
       (initOf(spy).headers as Record<string, string>)['Accept-Language']
@@ -108,7 +111,7 @@ describe('MealieApi.request', () => {
   });
 
   it('sends accept-language when configured', async () => {
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     await new MealieApi({ ...config, acceptLanguage: 'de-DE' }).get('/api/x');
     expect(
       (initOf(spy).headers as Record<string, string>)['Accept-Language']
@@ -116,7 +119,7 @@ describe('MealieApi.request', () => {
   });
 
   it('serialises a JSON body and sets the content type', async () => {
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     await new MealieApi(config).post('/api/recipes', { name: 'X' });
     const init = initOf(spy);
     expect(init.method).toBe('POST');
@@ -129,7 +132,7 @@ describe('MealieApi.request', () => {
   it('passes FormData through without a content type', async () => {
     // The runtime has to generate the multipart boundary; setting the header
     // ourselves would produce a body the server cannot parse.
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     const form = new FormData();
     form.append('images', new Blob([new Uint8Array([1, 2])]), 'a.png');
     await new MealieApi(config).post('/api/recipes/create/image', form);
@@ -141,29 +144,29 @@ describe('MealieApi.request', () => {
   });
 
   it('sends no body at all when none was given', async () => {
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     await new MealieApi(config).delete('/api/comments/x');
     expect(initOf(spy).body).toBeUndefined();
   });
 
   it('throws MealieApiError with the status and body', async () => {
-    mockFetch(jsonResponse({ detail: 'nope' }, 404));
+    respondWith(jsonResponse({ detail: 'nope' }, 404));
     await expect(new MealieApi(config).get('/api/recipes/x')).rejects.toThrow(
       MealieApiError
     );
-    mockFetch(jsonResponse({ detail: 'nope' }, 422));
+    respondWith(jsonResponse({ detail: 'nope' }, 422));
     await expect(
       new MealieApi(config).get('/api/recipes/x')
     ).rejects.toMatchObject({ status: 422, body: '{"detail":"nope"}' });
   });
 
   it('returns text for a non-JSON response', async () => {
-    mockFetch(new Response('plain', { status: 200 }));
+    respondWith(new Response('plain', { status: 200 }));
     await expect(new MealieApi(config).get('/api/x')).resolves.toBe('plain');
   });
 
   it('returns text when the JSON is malformed', async () => {
-    mockFetch(
+    respondWith(
       new Response('{not json', {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -175,7 +178,7 @@ describe('MealieApi.request', () => {
   });
 
   it('parses a bare JSON string, which is how the create routes answer', async () => {
-    mockFetch(jsonResponse('quark-bowl'));
+    respondWith(jsonResponse('quark-bowl'));
     await expect(new MealieApi(config).post('/api/recipes', {})).resolves.toBe(
       'quark-bowl'
     );
@@ -187,7 +190,7 @@ describe('MealieApi.request', () => {
   });
 
   it('refuses a response whose content-length exceeds the cap', async () => {
-    mockFetch(
+    respondWith(
       new Response('{}', {
         status: 200,
         headers: {
@@ -211,7 +214,7 @@ describe('MealieApi.request', () => {
         controller.close();
       },
     });
-    mockFetch(
+    respondWith(
       new Response(stream, {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -225,7 +228,7 @@ describe('MealieApi.request', () => {
   it('falls back to text() for a response without a stream', async () => {
     // Response-like stubs in other test suites have no body stream; the
     // content-length check still applies on that path.
-    mockFetch({
+    respondWith({
       headers: {
         get: (n: string) => (n === 'content-type' ? 'application/json' : null),
       },
@@ -240,7 +243,7 @@ describe('MealieApi.request', () => {
   });
 
   it('enforces the cap on the text() fallback too', async () => {
-    mockFetch({
+    respondWith({
       headers: { get: () => null },
       body: null,
       ok: true,
@@ -253,7 +256,7 @@ describe('MealieApi.request', () => {
   });
 
   it('exposes every verb the tools need', async () => {
-    const spy = mockFetch(jsonResponse({}));
+    const spy = respondWith(jsonResponse({}));
     const api = new MealieApi(config);
     await api.get('/a');
     await api.post('/a');

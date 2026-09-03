@@ -54,12 +54,22 @@ Run `preview_recipe_url` first: it fetches the page and reports what Mealie
 would extract, without saving anything. If the preview is already empty, the
 page's markup is the problem, not the import.
 
+## A dialog appeared before a delete
+
+That is the [approval flow](/guide/approval) working. Where your client supports
+MCP elicitation, the eleven guarded tools raise a question the model cannot
+answer on its behalf, and nothing happens until you answer it.
+
 ## A delete tool answered with a token instead of deleting
 
-That is the [confirmation flow](/guide/security#confirmation-tokens): the first
-call describes what is about to happen and returns a single-use token, the
-second call — same arguments plus `confirm_token` — performs it. Tokens expire
-after a few minutes and are bound to the specific target.
+That is the **fallback**, for a client that cannot show a dialog. The first call
+describes what is about to happen and returns a single-use token, the second —
+same arguments plus `confirm_token` — performs it. Tokens expire after a few
+minutes and are bound to the specific target.
+
+If your client *can* show dialogs and you are still seeing tokens, check whether
+`ELICITATION` is set to `false` somewhere in the environment: it deliberately
+carries no `MEALIE_` prefix, so it may have been meant for a different server.
 
 ## Why is there no bulk export / backup / user management tool?
 

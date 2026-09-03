@@ -1,0 +1,36 @@
+# Throwaway Mealie instance for `npm run test:integration`.
+#
+# Not a managed stack: brought up, filled by test/integration/bootstrap.ts, and
+# destroyed with `down -v` afterwards. The suite calls every tool in the
+# catalogue, deletes and merges included, so nothing here may hold recipes
+# anybody wants.
+#
+# Bound to 127.0.0.1 only. The credentials below are Mealie's own defaults and
+# are in version control on purpose — an instance reachable from the network
+# with them would be a mistake the binding is there to prevent.
+services:
+  mealie:
+    # Overridable so the weekly CI run can point at a newer tag and report
+    # drift without changing what the PR gate tests.
+    image: ${MEALIE_IMAGE:-ghcr.io/mealie-recipes/mealie:v3.25.0}
+    environment:
+      ALLOW_SIGNUP: 'false'
+      PUID: '1000'
+      PGID: '1000'
+      BASE_URL: http://127.0.0.1:9930
+    tmpfs:
+      # SQLite and the uploaded images live for the length of one run. tmpfs
+      # rather than a named volume so a forgotten `down` without `-v` cannot
+      # leave state that makes the next run pass for the wrong reason.
+      - /app/data
+    ports:
+      - '127.0.0.1:9930:9000'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fsS http://127.0.0.1:9000/api/app/about > /dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 40

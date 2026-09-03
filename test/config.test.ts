@@ -15,6 +15,72 @@ function silence() {
   return vi.spyOn(console, 'error').mockImplementation(() => undefined);
 }
 
+const complete = {
+  MEALIE_URL: 'https://mealie.example.com',
+  MEALIE_API_TOKEN: 'secret',
+};
+
+function env(values: Record<string, string>): NodeJS.ProcessEnv {
+  return { ...values } as NodeJS.ProcessEnv;
+}
+
+describe('ELICITATION', () => {
+  it('defaults to on, and to on for an empty value', () => {
+    // The only variable of this family that defaults to *on*. An unset switch
+    // has to mean "ask", or a deployment that never heard of it would quietly
+    // stop asking.
+    expect(loadConfig(env({ ...complete })).elicitation).toBe(true);
+    expect(loadConfig(env({ ...complete, ELICITATION: '' })).elicitation).toBe(
+      true
+    );
+  });
+
+  it('is switched off by "false", in any casing or padding', () => {
+    for (const raw of ['false', 'FALSE', ' False ']) {
+      expect(
+        loadConfig(env({ ...complete, ELICITATION: raw })).elicitation,
+        raw
+      ).toBe(false);
+    }
+  });
+
+  it('refuses to start on anything else, naming both valid values', () => {
+    // Deliberately fatal rather than falling back to the default: a typo would
+    // leave the dialog running while the operator believes it is off, and
+    // nothing else would ever tell them.
+    for (const raw of ['1', 'off', 'no']) {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+        throw new Error('exit');
+      }) as never);
+      expect(() => loadConfig(env({ ...complete, ELICITATION: raw }))).toThrow(
+        'exit'
+      );
+      expect(exit).toHaveBeenCalledWith(1);
+      const message = String(error.mock.calls[0]?.[0] ?? '');
+      expect(message, raw).toContain('ELICITATION');
+      expect(message, raw).toContain('"true"');
+      expect(message, raw).toContain('"false"');
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('has already wiped the credential by the time it can exit', () => {
+    // parseElicitation sits *after* the delete on purpose. An exit above it
+    // would leave the credential in the environment for whatever a crash
+    // reporter or an inspector does next — which is exactly what that delete
+    // exists to prevent, and its comment says so.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    const e = env({ ...complete, ELICITATION: 'nonsense' });
+    expect(() => loadConfig(e)).toThrow('exit');
+    expect(e.MEALIE_API_TOKEN).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+});
+
 describe('loadConfig', () => {
   it('reads the full configuration', () => {
     silence();
@@ -30,6 +96,7 @@ describe('loadConfig', () => {
       token: 'secret',
       acceptLanguage: 'de-DE',
       readOnly: true,
+      elicitation: true,
       insecureTls: true,
     });
   });
@@ -43,18 +110,44 @@ describe('loadConfig', () => {
     expect(config.url).toBe('https://mealie.example.com');
   });
 
-  it('treats the booleans as exactly "true"', () => {
+  it('reads READ_ONLY generously and INSECURE_TLS exactly', () => {
     silence();
-    const config = loadConfig({
-      MEALIE_URL: 'https://mealie.example.com',
-      MEALIE_API_TOKEN: 't',
-      MEALIE_READ_ONLY: 'True',
-      MEALIE_INSECURE_TLS: '1',
-    } as NodeJS.ProcessEnv);
-    // A typo in READ_ONLY therefore fails OPEN. Documented, and the reason the
-    // startup banner in index.ts prints the effective mode.
-    expect(config.readOnly).toBe(false);
-    expect(config.insecureTls).toBe(false);
+    // The two variables move in opposite directions, so they are read
+    // differently. READ_ONLY only ever takes capability away: somebody who
+    // wrote "True", "1", "yes" or "true " meant the safe thing and gets it.
+    for (const raw of ['true', 'True', 'TRUE', '1', 'yes', 'YES', ' true ']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_READ_ONLY: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.readOnly, JSON.stringify(raw)).toBe(true);
+    }
+    for (const raw of ['', 'false', 'no', '0', 'ture', 'on']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_READ_ONLY: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.readOnly, JSON.stringify(raw)).toBe(false);
+    }
+    // INSECURE_TLS weakens the server, so only the one spelling that asks for
+    // it unambiguously does it.
+    for (const raw of ['1', 'yes', 'True', 'TRUE', ' true ']) {
+      const config = loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_INSECURE_TLS: raw,
+      } as NodeJS.ProcessEnv);
+      expect(config.insecureTls, JSON.stringify(raw)).toBe(false);
+    }
+    expect(
+      loadConfig({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_INSECURE_TLS: 'true',
+      } as NodeJS.ProcessEnv).insecureTls
+    ).toBe(true);
   });
 
   it('removes the token from the environment', () => {
@@ -196,6 +289,9 @@ describe('missingConfigKeys', () => {
     acceptLanguage: undefined,
     insecureTls: false,
     readOnly: false,
+    elicitation: true,
+    allowTools: undefined,
+    denyTools: undefined,
   };
 
   it('reports nothing when configured', () => {

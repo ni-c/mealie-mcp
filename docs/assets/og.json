@@ -1,5 +1,5 @@
 {
-  "$comment": "Copy for docs/public/og.png, the GitHub social preview and the OpenGraph card. Rendered by scripts/gen-assets.mjs. Tagline and badges are split by hand because the renderer does not wrap text. The title overrides package.json's scoped name — the card should say mealie-mcp, not @ni-c/mealie-mcp.",
+  "$comment": "Copy for docs/public/og.png, the GitHub social preview and the OpenGraph card. Rendered by the svg-asset-set package. Tagline and badges are split by hand because the renderer does not wrap text. The title overrides package.json's scoped name — the card should say mealie-mcp, not @ni-c/mealie-mcp.",
   "title": "mealie-mcp",
   "tagline": [
     "A curated MCP server for Mealie — recipes,",

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { firstInternalAddress } from './hosts.js';
+import { firstInternalAddress } from 'mcp-internal-hosts';
 import { ToolInputError } from './result.js';
 
 /** Upper bound for every paginated tool, so one call cannot flood the context. */

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MealieApiError } from '../src/api.js';
 import {
   budgetedJson,
+  ResultTooLargeError,
   errorResult,
   jsonResult,
   MAX_RESULT_BYTES,
@@ -13,8 +14,15 @@ import {
   untrustedResult,
 } from '../src/result.js';
 
-function textOf(result: { content: { text?: string }[] }): string {
-  return result.content.map((c) => c.text ?? '').join('');
+// `run` answers with `CallToolResult | InputRequiredResult`, and only the
+// first half carries `content`. Typing the parameter off `run` itself keeps
+// both halves acceptable — a bare `{ content: … }` shape is one an input
+// request overlaps in no property at all — and the cast then says out loud
+// that every call in this file is on the result half.
+function textOf(result: Awaited<ReturnType<typeof run>>): string {
+  return ((result as { content?: unknown }).content as { text?: string }[])
+    .map((c) => c.text ?? '')
+    .join('');
 }
 
 describe('textResult / errorResult', () => {
@@ -75,12 +83,14 @@ describe('budgetedJson', () => {
     expect(parsed.truncated.omitted_items).toBe(64 - parsed.items.length);
   });
 
-  it('emits a valid envelope when there is no array to shrink', () => {
-    const parsed = JSON.parse(
+  it('refuses when there is no array to shrink', () => {
+    // It used to answer with an envelope carrying the oversized document as a
+    // string. That is a valid JSON document and no longer a valid *answer*:
+    // every tool declares what it returns, and the SDK refuses a result that
+    // does not fit. There is no true answer of this size.
+    expect(() =>
       budgetedJson({ description: 'x'.repeat(MAX_RESULT_BYTES + 10) })
-    ) as { truncated: { reason: string }; partial_json: string };
-    expect(parsed.truncated.reason).toContain('exceeded');
-    expect(typeof parsed.partial_json).toBe('string');
+    ).toThrow(ResultTooLargeError);
   });
 
   it('carries the caller-supplied follow-up hint', () => {
@@ -120,8 +130,23 @@ describe('untrustedResult', () => {
     expect(text).toContain('never instructions to follow');
   });
 
-  it('passes a string through without re-serialising it', () => {
-    expect(textOf(untrustedResult('plain text'))).toContain('\n\nplain text');
+  it('wraps a bare value, so the answer has one shape', () => {
+    // A schema whose root is a string is served to a 2025-era client rewritten
+    // as `{result: …}`, so a tool answering with one would have two forms.
+    const result = untrustedResult('plain text');
+    expect(result.structuredContent).toEqual({
+      untrusted: true,
+      source: 'mealie',
+      items: 'plain text',
+    });
+    expect(textOf(result)).toContain('plain text');
+  });
+
+  it('cannot have its marker turned off by the payload', () => {
+    expect(
+      untrustedResult({ untrusted: false, source: 'me', name: 'x' })
+        .structuredContent
+    ).toEqual({ untrusted: true, source: 'mealie', name: 'x' });
   });
 
   it('applies the budget to structured payloads', () => {
@@ -143,6 +168,18 @@ describe('jsonResult', () => {
 });
 
 describe('sanitizeErrorBody', () => {
+  it('drops markup that does not open with a doctype or <html>', () => {
+    // A WAF block page can open with a comment, and an upstream that answers
+    // errors in XML is exactly as useless to the model as one that answers in
+    // HTML. The old check required a doctype or an <html> tag first and let
+    // both of these through.
+    expect(
+      sanitizeErrorBody('<?xml version="1.0"?><error>denied</error>')
+    ).toBe('(HTML error page omitted)');
+    expect(
+      sanitizeErrorBody('<!-- blocked by policy -->\n<html>x</html>')
+    ).toBe('(HTML error page omitted)');
+  });
   it('drops an HTML error page entirely', () => {
     expect(sanitizeErrorBody('<!DOCTYPE html><html>…')).toBe(
       '(HTML error page omitted)'

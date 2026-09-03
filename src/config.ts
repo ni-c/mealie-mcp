@@ -1,4 +1,4 @@
-import { internalHostKind } from './hosts.js';
+import { internalHostKind } from 'mcp-internal-hosts';
 
 export interface Config {
   /**
@@ -15,7 +15,15 @@ export interface Config {
    */
   acceptLanguage: string | undefined;
   insecureTls: boolean;
-  readOnly: boolean; /**
+  readOnly: boolean;
+  /**
+   * Whether a client that *can* show a dialog is asked before a guarded tool
+   * acts. `ELICITATION=false` turns the dialog off — the guard stays and falls
+   * back to the two-call token, so there is no setting in which a guarded call
+   * goes unannounced.
+   */
+  elicitation: boolean;
+  /**
    * Raw value of `MEALIE_ALLOW_TOOLS` — comma-separated tool names, `list_*`
    * prefixes, or `essential`. Kept unparsed on purpose: this file is a mirror of
    * the environment, and the names can only be checked against the tool
@@ -48,6 +56,30 @@ export function missingConfigKeys(config: Config): string[] {
 }
 
 /**
+ * Reads `ELICITATION` — deliberately unprefixed, and deliberately fatal on
+ * anything it does not recognise.
+ *
+ * Unprefixed: environment variables are process-wide, so this is one switch for
+ * every server in the same environment. That is also its risk, which is why a
+ * server started with it off says so on its startup line.
+ *
+ * Fatal: this is the first variable of the family that defaults to *on*. The
+ * others fail open on a typo, which is the safe direction for them. Here a typo
+ * would leave the dialog running while the operator believes it is off — and an
+ * operator who believes that has no way to find out.
+ */
+export function parseElicitation(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase();
+  if (value === undefined || value === '' || value === 'true') return true;
+  if (value === 'false') return false;
+  console.error(
+    `mealie-mcp: ELICITATION must be "true" or "false" — got "${raw}". ` +
+      'Refusing to start rather than guess.'
+  );
+  process.exit(1);
+}
+
+/**
  * Reads the configuration from environment variables.
  *
  * Missing credentials are only a warning, not a fatal error: the server must be
@@ -59,8 +91,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const url = env.MEALIE_URL;
   const token = env.MEALIE_API_TOKEN;
   const acceptLanguage = env.MEALIE_ACCEPT_LANGUAGE;
+  // `MEALIE_INSECURE_TLS` stays exact on purpose: it *weakens* the server, so
+  // only the one spelling that unambiguously asks for it should do it.
   const insecureTls = env.MEALIE_INSECURE_TLS === 'true';
-  const readOnly = env.MEALIE_READ_ONLY === 'true';
+  // `MEALIE_READ_ONLY` is the other direction — it only ever takes capability
+  // away — so the fleet form is generous with the spelling. An operator who
+  // wrote `1` or `yes` meant the safe thing, and `MEALIE_READ_ONLY=true ` with
+  // a trailing space used to mean the unsafe one.
+  const readOnly = /^(1|true|yes)$/i.test(env.MEALIE_READ_ONLY?.trim() ?? '');
   const allowTools = env.MEALIE_ALLOW_TOOLS;
   const denyTools = env.MEALIE_DENY_TOOLS;
 
@@ -69,6 +107,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // child processes and in /proc/<pid>/environ. Reading it into a local first is
   // what makes the early returns safe.
   delete env.MEALIE_API_TOKEN;
+
+  // After the delete, deliberately: this one can exit the process, and an exit
+  // above would leave the credential in the environment for whatever runs next.
+  const elicitation = parseElicitation(env.ELICITATION);
 
   const missing = [!url && 'MEALIE_URL', !token && 'MEALIE_API_TOKEN'].filter(
     (v): v is string => Boolean(v)
@@ -85,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       acceptLanguage,
       insecureTls,
       readOnly,
+      elicitation,
       allowTools,
       denyTools,
     };
@@ -134,6 +177,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     acceptLanguage,
     insecureTls,
     readOnly,
+    elicitation,
     allowTools,
     denyTools,
   };

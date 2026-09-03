@@ -1,51 +1,14 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ToolFilterError } from 'mcp-tool-allowlist';
 
-import type { Config } from '../src/config.js';
 import { createServer } from '../src/server.js';
-import { ToolFilterError } from '../src/tool-filter.js';
 import {
   ALL_TOOLS,
   ESSENTIAL_TOOLS,
   READ_TOOLS,
   WRITE_TOOLS,
 } from '../src/tools/catalogue.js';
-
-const base: Config = {
-  url: 'https://mealie.example.com',
-  token: 'test-token',
-  acceptLanguage: undefined,
-  insecureTls: false,
-  readOnly: false,
-  allowTools: undefined,
-  denyTools: undefined,
-};
-
-function config(overrides: Partial<Config> = {}): Config {
-  return { ...base, ...overrides };
-}
-
-/** The tools a server built with this configuration actually offers. */
-async function toolNames(overrides: Partial<Config> = {}): Promise<string[]> {
-  vi.stubGlobal('fetch', vi.fn());
-  const server = createServer(config(overrides));
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
-  const { tools } = await client.listTools();
-  return tools.map((t) => t.name).sort();
-}
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
+import { connect, testConfig, toolNames } from './harness.js';
 
 describe('the catalogue', () => {
   // These are what let the filter validate a name before anything is
@@ -117,19 +80,6 @@ describe('selecting tools', () => {
     ).toEqual([...ESSENTIAL_TOOLS, 'add_recipe_comment'].sort());
   });
 
-  it('trims entries, ignores case and skips empty ones', async () => {
-    expect(
-      await toolNames({ allowTools: ' GET_ABOUT ,, get_cookbook, ' })
-    ).toEqual(['get_about', 'get_cookbook'].sort());
-  });
-
-  it('treats an empty value as no filter at all', async () => {
-    // `ALLOW_TOOLS=` in a compose file must not mean "allow nothing".
-    expect(await toolNames({ allowTools: '   ' })).toEqual(
-      [...ALL_TOOLS].sort()
-    );
-  });
-
   it('leaves an unconfigured server untouched', async () => {
     expect(await toolNames()).toEqual([...ALL_TOOLS].sort());
   });
@@ -149,24 +99,17 @@ describe('a filtered-out tool', () => {
         });
       })
     );
-    const server = createServer(config({ allowTools: 'get_about' }));
-    const client = new Client({ name: 'test-client', version: '0.0.0' });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
-    ]);
+    const client = await connect({ allowTools: 'get_about' });
 
-    const result = (await client.callTool({
-      name: 'add_recipe_comment',
-      arguments: {},
-    })) as CallToolResult;
-
-    expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain(
-      'Tool add_recipe_comment not found'
-    );
+    // SDK v2 reports an unknown tool as a JSON-RPC error rather than as a
+    // result carrying isError. Either way the call fails and nothing reaches
+    // the API, which is what this test is about.
+    await expect(
+      client.callTool({
+        name: 'add_recipe_comment',
+        arguments: {},
+      })
+    ).rejects.toThrow('Tool add_recipe_comment not found');
     expect(calls).toHaveLength(0);
   });
 });
@@ -175,37 +118,22 @@ describe('refusing an unusable list', () => {
   it('rejects a name no tool has, and says which names exist', () => {
     // A typo that was merely ignored would leave a tool missing with no trace
     // of why — nobody looks for the cause of an absence in an env var.
-    expect(() => createServer(config({ allowTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ allowTools: 'get_abouz' }))).toThrow(
       ToolFilterError
     );
-    expect(() => createServer(config({ allowTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ allowTools: 'get_abouz' }))).toThrow(
       /no tool matches "get_abouz".*get_about/s
     );
   });
 
-  it('rejects a pattern that matches nothing', () => {
-    expect(() => createServer(config({ allowTools: 'zzz_*' }))).toThrow(
-      /no tool matches "zzz_\*"/
-    );
-  });
-
-  it('rejects a pattern with the star anywhere but last', () => {
-    expect(() => createServer(config({ allowTools: '*_x' }))).toThrow(
-      /single trailing "\*"/
-    );
-    expect(() => createServer(config({ allowTools: 'create_*_x' }))).toThrow(
-      /single trailing "\*"/
-    );
-  });
-
   it('applies the same rule to the deny list', () => {
-    expect(() => createServer(config({ denyTools: 'get_abouz' }))).toThrow(
+    expect(() => createServer(testConfig({ denyTools: 'get_abouz' }))).toThrow(
       /_DENY_TOOLS: no tool matches "get_abouz"/
     );
   });
 
   it('rejects a list that would leave no tools at all', () => {
-    expect(() => createServer(config({ denyTools: '*' }))).toThrow(
+    expect(() => createServer(testConfig({ denyTools: '*' }))).toThrow(
       /empty tool list/
     );
   });
@@ -219,7 +147,9 @@ describe('together with read-only mode', () => {
     // the reader looking for a typo that is not there.
     let thrown: unknown;
     try {
-      createServer(config({ ...readOnly, allowTools: 'add_recipe_comment' }));
+      createServer(
+        testConfig({ ...readOnly, allowTools: 'add_recipe_comment' })
+      );
     } catch (error) {
       thrown = error;
     }
@@ -262,7 +192,7 @@ describe('together with read-only mode', () => {
     // whole allow list, the empty server needs the real explanation.
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() =>
-      createServer(config({ ...readOnly, allowTools: 'add_*' }))
-    ).toThrow(/only write tools, but .*_READ_ONLY is set/);
+      createServer(testConfig({ ...readOnly, allowTools: 'add_*' }))
+    ).toThrow(/read-only mode suppresses.*MEALIE_READ_ONLY is set/s);
   });
 });

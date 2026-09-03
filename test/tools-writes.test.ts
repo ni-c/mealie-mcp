@@ -1,32 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
-import type { Config } from '../src/config.js';
-import { createServer } from '../src/server.js';
-
-const config: Config = {
-  url: 'https://mealie.example.com',
-  token: 'test-token',
-  acceptLanguage: undefined,
-  insecureTls: false,
-  readOnly: false,
-};
-
-const GENERIC = {
-  id: '11111111-1111-4111-8111-111111111111',
-  slug: 'quark-bowl',
-  name: 'Quark Bowl',
-  items: [],
-  listItems: [],
-  recipeIngredient: [],
-  recipeInstructions: [],
-  tags: [],
-  recipeCategory: [],
-  tools: [],
-  notes: [],
-};
+import {
+  callsOf,
+  callText,
+  confirmed,
+  connect,
+  GENERIC,
+  mockFetch,
+  tokenOf,
+} from './harness.js';
 
 const TAG_ID = '33333333-3333-4333-8333-333333333333';
 const OTHER_ID = '44444444-4444-4444-8444-444444444444';
@@ -35,97 +17,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function connect(): Promise<Client> {
-  const server = createServer(config);
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '0.0.0' });
-  await Promise.all([
-    client.connect(clientTransport),
-    server.connect(serverTransport),
-  ]);
-  return client;
-}
-
-function mockFetch(bodies: unknown[] | unknown = GENERIC) {
-  const queue = Array.isArray(bodies) ? [...bodies] : undefined;
-  return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-    const payload = queue === undefined ? bodies : (queue.shift() ?? GENERIC);
-    return new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  });
-}
-
-interface Call {
-  url: string;
-  method: string;
-  body: unknown;
-}
-
-function callsOf(spy: { mock: { calls: unknown[][] } }): Call[] {
-  return spy.mock.calls.map(([url, init]) => {
-    const request = (init ?? {}) as RequestInit;
-    return {
-      url: String(url),
-      method: request.method ?? 'GET',
-      body:
-        typeof request.body === 'string'
-          ? (JSON.parse(request.body) as unknown)
-          : undefined,
-    };
-  });
-}
-
-async function callText(
-  client: Client,
-  name: string,
-  args: Record<string, unknown> = {}
-): Promise<{ text: string; isError: boolean }> {
-  const result = await client.callTool({ name, arguments: args });
-  const content = result.content as { text?: string }[];
-  return {
-    text: content.map((c) => c.text ?? '').join('\n'),
-    isError: Boolean(result.isError),
-  };
-}
-
-function tokenOf(text: string): string {
-  const match = /confirm_token="([0-9a-f]+)"/.exec(text);
-  if (!match?.[1]) throw new Error(`no confirmation token in: ${text}`);
-  return match[1];
-}
-
-/** Runs the two-call confirmation dance and returns the second result. */
-async function confirmed(
-  client: Client,
-  name: string,
-  args: Record<string, unknown>
-): Promise<{ text: string; isError: boolean; prompt: string }> {
-  const first = await callText(client, name, args);
-  const second = await callText(client, name, {
-    ...args,
-    confirm_token: tokenOf(first.text),
-  });
-  return { ...second, prompt: first.text };
-}
-
 describe('organizer writes', () => {
-  it('renames through PUT on the kind-specific path', async () => {
+  it('renames through PUT on the kind-specific path, behind a confirmation', async () => {
     const spy = mockFetch();
-    await callText(await connect(), 'update_organizer', {
+    const result = await confirmed(await connect(), 'update_organizer', {
       kind: 'category',
       id: TAG_ID,
       name: 'Desserts',
     });
-    expect(callsOf(spy)[0]).toMatchObject({
-      method: 'PUT',
-      body: { name: 'Desserts' },
+    // The rename takes the slug with it, which is what the prompt has to say.
+    expect(result.prompt).toContain('regenerates the slug');
+    // The caller's new name is shown, but on its own labelled line rather than
+    // inside the server's own sentence.
+    expect(result.prompt).toContain('New name: Desserts');
+    const put = callsOf(spy).find((c) => c.method === 'PUT');
+    expect(put).toMatchObject({ method: 'PUT', body: { name: 'Desserts' } });
+    expect(put!.url).toContain(`/api/organizers/categories/${TAG_ID}`);
+  });
+
+  it('renames nothing until the rename is confirmed', async () => {
+    const spy = mockFetch();
+    const { text } = await callText(await connect(), 'update_organizer', {
+      kind: 'category',
+      id: TAG_ID,
+      name: 'Desserts',
     });
-    expect(callsOf(spy)[0]!.url).toContain(
-      `/api/organizers/categories/${TAG_ID}`
-    );
+    expect(text).toContain('confirm_token');
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('deletes each kind behind a confirmation', async () => {
@@ -161,7 +79,10 @@ describe('organizer writes', () => {
       id: TAG_ID,
       confirm_token: tokenOf(first.text),
     });
-    expect(crossed.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(crossed.text).toContain('invalid, expired');
     expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
   });
 });
@@ -230,6 +151,27 @@ describe('food and unit writes', () => {
     expect(first.text).toContain(`${TAG_ID} is deleted`);
     expect(first.text).toContain('cannot be undone');
   });
+
+  it('sends the caller back to the tool they actually called', async () => {
+    // Both merge tools come out of one factory, and the factory named the tool
+    // `create_unit` — a real, unrelated tool of this server. The fallback
+    // instruction and the declined sentence are the two places the library
+    // prints that name, so a caller was being pointed at something else
+    // entirely, and something that creates rather than merges.
+    mockFetch();
+    for (const [tool, plural] of [
+      ['merge_foods', 'foods'],
+      ['merge_units', 'units'],
+    ] as const) {
+      const first = await callText(await connect(), tool, {
+        from_id: TAG_ID,
+        to_id: OTHER_ID,
+      });
+      expect(first.text, tool).toContain(tool);
+      expect(first.text, tool).toContain(plural);
+      expect(first.text, tool).not.toContain('create_unit');
+    }
+  });
 });
 
 describe('meal plan writes', () => {
@@ -293,7 +235,7 @@ describe('meal plan writes', () => {
       entry_id: 7,
     });
     expect(result.prompt).toContain('recipe itself is kept');
-    expect(result.text).toContain('Removed meal plan entry 7');
+    expect(JSON.parse(result.text)).toEqual({ removed_entry_id: 7 });
     expect(callsOf(spy).find((c) => c.method === 'DELETE')?.url).toContain(
       '/api/households/mealplans/7'
     );
@@ -323,20 +265,50 @@ describe('shopping and cookbook writes', () => {
     );
   });
 
-  it('creates a cookbook with its saved filter', async () => {
+  it('creates a public cookbook with its saved filter, behind a confirmation', async () => {
+    // This test used to call create_cookbook with is_public: true in one go and
+    // check only the request body, which wrote the missing gate down as the
+    // expected behaviour. Publishing is the one thing create_share_token is
+    // guarded for, and this is the other tool that does it.
     const spy = mockFetch();
-    await callText(await connect(), 'create_cookbook', {
+    const result = await confirmed(await connect(), 'create_cookbook', {
       name: 'Desserts',
       description: 'sweet things',
       query_filter: 'tags.name IN ["Dessert"]',
       is_public: true,
     });
+    expect(result.prompt).toContain('without logging in');
+    expect(result.prompt).toContain('Cookbook name: Desserts');
     expect(callsOf(spy)[0]!.body).toEqual({
       name: 'Desserts',
       description: 'sweet things',
       public: true,
       queryFilterString: 'tags.name IN ["Dessert"]',
     });
+  });
+
+  it('publishes nothing until the publishing is confirmed', async () => {
+    const spy = mockFetch();
+    const { text } = await callText(await connect(), 'create_cookbook', {
+      name: 'Desserts',
+      is_public: true,
+    });
+    expect(text).toContain('confirm_token');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('creates a private cookbook without asking anybody', async () => {
+    // The gate is on the publishing, not on the tool. A private cookbook is an
+    // ordinary write and stays one.
+    const spy = mockFetch();
+    const { text, isError } = await callText(
+      await connect(),
+      'create_cookbook',
+      { name: 'Desserts', query_filter: 'tags.name IN ["Dessert"]' }
+    );
+    expect(isError).toBe(false);
+    expect(text).not.toContain('confirm_token');
+    expect(callsOf(spy)[0]!.body).toMatchObject({ public: false });
   });
 
   it('defaults a cookbook to private and unfiltered', async () => {

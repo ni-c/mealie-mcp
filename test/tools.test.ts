@@ -1,107 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
-import type { Config } from '../src/config.js';
-import { createServer } from '../src/server.js';
 import { recipePatch } from '../src/tools/recipes.js';
-
-const config: Config = {
-  url: 'https://mealie.example.com',
-  token: 'test-token',
-  acceptLanguage: undefined,
-  insecureTls: false,
-  readOnly: false,
-};
-
-/**
- * One body every projection can read something out of. The shapes take what
- * they know and ignore the rest, so a single mock covers most endpoints.
- */
-const GENERIC = {
-  id: '11111111-1111-4111-8111-111111111111',
-  slug: 'quark-bowl',
-  name: 'Quark Bowl',
-  image: '1',
-  items: [],
-  listItems: [],
-  createdItems: [],
-  updatedItems: [],
-  recipeIngredient: [],
-  recipeInstructions: [],
-  tags: [],
-  recipeCategory: [],
-  tools: [],
-  notes: [],
-  total: 0,
-};
+import {
+  callsOf,
+  callText,
+  confirmed,
+  connect,
+  GENERIC,
+  mockFetch,
+  tokenOf,
+} from './harness.js';
+import { expectPortableToolSchemas } from 'mcp-integration-harness';
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-async function connect(overrides: Partial<Config> = {}): Promise<Client> {
-  const server = createServer({ ...config, ...overrides });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '0.0.0' });
-  await Promise.all([
-    client.connect(clientTransport),
-    server.connect(serverTransport),
-  ]);
-  return client;
-}
-
-interface Call {
-  url: string;
-  method: string;
-  body: unknown;
-}
-
-function mockFetch(bodies: unknown[] | unknown = GENERIC) {
-  const queue = Array.isArray(bodies) ? [...bodies] : undefined;
-  return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-    const payload = queue === undefined ? bodies : (queue.shift() ?? GENERIC);
-    return new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  });
-}
-
-function callsOf(spy: { mock: { calls: unknown[][] } }): Call[] {
-  return spy.mock.calls.map(([url, init]) => {
-    const request = (init ?? {}) as RequestInit;
-    return {
-      url: String(url),
-      method: request.method ?? 'GET',
-      body:
-        typeof request.body === 'string'
-          ? (JSON.parse(request.body) as unknown)
-          : undefined,
-    };
-  });
-}
-
-async function callText(
-  client: Client,
-  name: string,
-  args: Record<string, unknown> = {}
-): Promise<{ text: string; isError: boolean }> {
-  const result = await client.callTool({ name, arguments: args });
-  const content = result.content as { text?: string }[];
-  return {
-    text: content.map((c) => c.text ?? '').join('\n'),
-    isError: Boolean(result.isError),
-  };
-}
-
-function tokenOf(text: string): string {
-  const match = /confirm_token="([0-9a-f]+)"/.exec(text);
-  if (!match?.[1]) throw new Error(`no confirmation token in: ${text}`);
-  return match[1];
-}
 
 describe('tool registration', () => {
   it('registers every tool by default', async () => {
@@ -114,13 +27,12 @@ describe('tool registration', () => {
     // server refuses to provide, so they are not registered at all.
     const { tools } = await (await connect({ readOnly: true })).listTools();
     const names = tools.map((t) => t.name);
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(18);
     for (const write of [
       'create_recipe',
       'update_recipe',
       'delete_recipe',
       'import_recipe_from_url',
-      'preview_recipe_url',
       'create_share_token',
       'merge_foods',
     ]) {
@@ -128,6 +40,23 @@ describe('tool registration', () => {
     }
     expect(names).toContain('search_recipes');
     expect(names).toContain('get_recipe');
+    // preview_recipe_url saves nothing and is annotated read-only. It used to
+    // be suppressed here, which made the catalogue and the annotation say
+    // opposite things about the same tool.
+    expect(names).toContain('preview_recipe_url');
+  });
+
+  it('still refuses an internal address in read-only mode', async () => {
+    // The reason preview_recipe_url was gated is real — it makes Mealie fetch
+    // a caller-supplied URL — and the gate was the wrong place for it. This is
+    // the right one, and it does not depend on the mode.
+    const { text, isError } = await callText(
+      await connect({ readOnly: true }),
+      'preview_recipe_url',
+      { url: 'http://127.0.0.1:9000/recipe' }
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('loopback');
   });
 
   it('lists its tools without credentials but fails every call', async () => {
@@ -145,9 +74,138 @@ describe('tool registration', () => {
     const byName = new Map(tools.map((t) => [t.name, t.annotations]));
     expect(byName.get('search_recipes')?.readOnlyHint).toBe(true);
     expect(byName.get('delete_recipe')?.destructiveHint).toBe(true);
-    expect(byName.get('update_recipe')?.destructiveHint).toBe(false);
     // The import tools reach outside the instance.
     expect(byName.get('import_recipe_from_url')?.openWorldHint).toBe(true);
+  });
+
+  it('counts an update as destructive, because Mealie keeps no history', async () => {
+    // The verb is not what decides it. `update_recipe` with a new instruction
+    // list replaces the old one and there is nowhere to read it back from —
+    // where Wiki.js has page history and its `update_page` genuinely is not
+    // destructive. Adding to a collection is a different thing again and stays
+    // additive.
+    const { tools } = await (await connect()).listTools();
+    const byName = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const name of [
+      'update_recipe',
+      'update_organizer',
+      'update_mealplan_entry',
+      'update_shopping_list_items',
+    ]) {
+      expect(byName.get(name)?.destructiveHint, name).toBe(true);
+    }
+    for (const name of [
+      'add_shopping_list_items',
+      'add_recipe_comment',
+      'create_recipe',
+    ]) {
+      expect(byName.get(name)?.destructiveHint, name).toBe(false);
+    }
+  });
+
+  it('declares an output schema on every tool', async () => {
+    // The same argument as the annotations below, one field along. A tool that
+    // says nothing about its result forces a client to parse prose to find out
+    // what it got, and the SDK sends no `structuredContent` at all for a tool
+    // that declared no schema — nine tools here answered with a sentence.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.outputSchema, tool.name).toBeDefined();
+      // An object root, not merely a schema. SEP-2106 allows an array or a
+      // scalar, but a 2025-era client is served that same tool with the schema
+      // rewritten to `{result: …}` — so it would answer in two shapes
+      // depending on who asked.
+      expect(tool.outputSchema?.type, tool.name).toBe('object');
+    }
+  });
+
+  it('advertises schemas every client can read', async () => {
+    // Legal JSON Schema is not enough. `{}` in a schema position — what zod
+    // writes for `looseObject`, `catchall` and `z.unknown()` — and `type` as an
+    // array are both refused, or silently dropped, by some clients. Neither is
+    // a contract: each has an equivalent spelling that says the same thing, so
+    // there is nothing here to excuse.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    expectPortableToolSchemas(tools);
+  });
+
+  it('marks the results built from Mealie content as untrusted', async () => {
+    // Recipes are routinely scraped from arbitrary websites and comments come
+    // from other users of the instance, so a client that reads only
+    // `structuredContent` must not get any of it unframed.
+    const client = await connect();
+    const { tools } = await client.listTools();
+    const plainTools = tools
+      .filter((tool) => {
+        const properties = tool.outputSchema?.properties as
+          Record<string, unknown> | undefined;
+        return properties?.untrusted === undefined;
+      })
+      .map((tool) => tool.name)
+      .sort();
+    // The ones whose answer is this server's own words: an id it was given, or
+    // — for get_about — a version string and the permission flags of the
+    // account it authenticates as.
+    expect(plainTools).toEqual([
+      'delete_cookbook',
+      'delete_mealplan_entry',
+      'delete_organizer',
+      'delete_recipe',
+      'delete_recipe_comment',
+      'delete_share_token',
+      'delete_shopping_list',
+      'delete_shopping_list_items',
+      'get_about',
+      'set_recipe_last_made',
+    ]);
+  });
+
+  it('declares all four annotation hints on every tool', async () => {
+    // Not a style rule. Two of the four default to a *stronger* claim than
+    // silence suggests: the specification gives destructiveHint and
+    // openWorldHint a default of true. This repository stated the first two on
+    // all fifty-two tools and left the other two to chance, so forty-nine of
+    // them were claiming an open world while talking to one configured Mealie.
+    const { tools } = await (await connect()).listTools();
+    const hints = [
+      'readOnlyHint',
+      'destructiveHint',
+      'idempotentHint',
+      'openWorldHint',
+    ] as const;
+    for (const tool of tools) {
+      for (const hint of hints) {
+        expect(typeof tool.annotations?.[hint], `${tool.name}.${hint}`).toBe(
+          'boolean'
+        );
+      }
+    }
+  });
+
+  it('opens the world only where Mealie talks to somebody else', async () => {
+    // Three situations, all counting: the caller names the address
+    // (import_recipe_from_url, preview_recipe_url — the boundary the SSRF
+    // guard watches), the operator did (import_recipe_from_image goes to the
+    // configured AI provider), or the caller's *content* does.
+    // import_recipe_from_html_or_json is the third: it does not fetch the
+    // document, but Mealie reads the image address out of it and fetches that.
+    // It used to be listed here as reaching nothing, which made this test pin
+    // down the wrong answer.
+    const reaching = [
+      'import_recipe_from_url',
+      'preview_recipe_url',
+      'import_recipe_from_image',
+      'import_recipe_from_html_or_json',
+    ];
+    const { tools } = await (await connect()).listTools();
+    for (const tool of tools) {
+      expect(tool.annotations?.openWorldHint, tool.name).toBe(
+        reaching.includes(tool.name)
+      );
+    }
   });
 });
 
@@ -244,13 +302,24 @@ describe('read tools', () => {
   });
 
   it('repeats multi-valued filters as separate query keys', async () => {
-    const spy = mockFetch();
+    // The values reaching Mealie are ids now, not what the caller typed — see
+    // the resolution tests below for why — so this checks the shape of the
+    // query string, which is the thing it was always about: repeated keys
+    // rather than one comma-separated value.
+    const spy = mockFetch([
+      { id: 'aaaaaaaa-1111-4111-8111-111111111111', slug: 'keto' },
+      { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'vegetarian' },
+      GENERIC,
+    ]);
     await callText(await connect(), 'search_recipes', {
       tags: ['keto', 'vegetarian'],
       require_all_tags: true,
     });
-    const url = new URL(callsOf(spy)[0]!.url);
-    expect(url.searchParams.getAll('tags')).toEqual(['keto', 'vegetarian']);
+    const url = new URL(callsOf(spy).at(-1)!.url);
+    expect(url.searchParams.getAll('tags')).toEqual([
+      'aaaaaaaa-1111-4111-8111-111111111111',
+      'bbbbbbbb-2222-4222-8222-222222222222',
+    ]);
     expect(url.searchParams.get('requireAllTags')).toBe('true');
   });
 
@@ -443,21 +512,25 @@ describe('write tools', () => {
     // Mealie's PUT replaces the whole 33-field recipe, so a partial body there
     // silently drops ingredients, steps and tags.
     const spy = mockFetch();
-    await callText(await connect(), 'update_recipe', {
+    await confirmed(await connect(), 'update_recipe', {
       recipe: 'quark-bowl',
       name: 'New Name',
     });
     const calls = callsOf(spy);
-    expect(calls[0]!.method).toBe('PATCH');
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(true);
     expect(calls.every((c) => c.method !== 'PUT')).toBe(true);
   });
 
-  it('refuses an update with no fields without calling the API', async () => {
+  it('answers an update with no fields without calling the API', async () => {
+    // Not an error: a model that resolved every field to its current value
+    // should not be punished for asking. It says nothing changed, in fields
+    // rather than in a sentence.
     const spy = mockFetch();
     const { text } = await callText(await connect(), 'update_recipe', {
       recipe: 'quark-bowl',
     });
-    expect(text).toBe('Nothing to update: no field was given.');
+    expect(text).toContain('Nothing to update: no field was given.');
+    expect(text).toContain('"changed": false');
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -694,7 +767,7 @@ describe('confirmation flow', () => {
     const first = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
     });
-    expect(first.text).toContain('irreversible');
+    expect(first.text).toContain('no undelete');
     // Nothing but the lookup so far.
     expect(callsOf(spy).every((c) => c.method === 'GET')).toBe(true);
 
@@ -717,24 +790,30 @@ describe('confirmation flow', () => {
     expect(text).toContain(GENERIC.id);
   });
 
-  it('re-prompts on a wrong token and invalidates the old one', async () => {
+  it('refuses a wrong token and leaves the outstanding one alone', async () => {
+    const spy = mockFetch();
     const client = await connect();
-    mockFetch();
     const first = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
     });
-    const stale = tokenOf(first.text);
+    const issued = tokenOf(first.text);
     const rejected = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
       confirm_token: 'deadbeef',
     });
-    expect(rejected.text).toContain('confirm_token=');
-    // The rejected attempt re-issued, so the first token no longer works.
-    const replayed = await callText(client, 'delete_recipe', {
+    expect(rejected.text).toContain('invalid, expired');
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+
+    // Deliberately different from before: a wrong guess no longer voids the
+    // token the user was legitimately given. Voiding it let anyone who could
+    // reach the tool cancel a pending confirmation by sending rubbish, which
+    // protected nothing.
+    const proper = await callText(client, 'delete_recipe', {
       recipe: 'quark-bowl',
-      confirm_token: stale,
+      confirm_token: issued,
     });
-    expect(replayed.text).toContain('confirm_token=');
+    expect(proper.isError).toBe(false);
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(true);
   });
 
   it('binds a set operation to the sorted id set', async () => {
@@ -752,7 +831,10 @@ describe('confirmation flow', () => {
       item_ids: ids,
       confirm_token: tokenOf(first.text),
     });
-    expect(widened.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(widened.text).toContain('invalid, expired');
     expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
   });
 
@@ -787,7 +869,10 @@ describe('confirmation flow', () => {
       to_id: a,
       confirm_token: tokenOf(first.text),
     });
-    expect(reversed.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(reversed.text).toContain('invalid, expired');
     await callText(client, 'merge_foods', {
       from_id: a,
       to_id: b,
@@ -812,13 +897,32 @@ describe('confirmation flow', () => {
     expect(text).toContain('/shared/recipes/');
   });
 
-  it('revokes a share link without a confirmation', async () => {
+  it('asks before it revokes a share link, and revokes once agreed', async () => {
+    // It used to go through unannounced, on the grounds that revoking narrows
+    // access rather than widening it. The direction is the safe one; what is
+    // not is that the link cannot be reissued — a new share token is a
+    // different URL, so whoever was sent the old one finds a dead link and
+    // this server cannot tell whom that was.
     const spy = mockFetch();
-    const { isError } = await callText(await connect(), 'delete_share_token', {
+    const client = await connect({}, 'accept');
+    const { isError } = await callText(client, 'delete_share_token', {
       token_id: '55555555-5555-4555-8555-555555555555',
     });
+    expect(client.prompts).toHaveLength(1);
+    expect(client.prompts[0]).toContain('cannot be reissued');
     expect(isError).toBe(false);
     expect(callsOf(spy)[0]!.method).toBe('DELETE');
+  });
+
+  it('revokes nothing when the person declines', async () => {
+    const spy = mockFetch();
+    const { isError } = await callText(
+      await connect({}, 'decline'),
+      'delete_share_token',
+      { token_id: '55555555-5555-4555-8555-555555555555' }
+    );
+    expect(isError).toBe(true);
+    expect(callsOf(spy)).toHaveLength(0);
   });
 
   it('binds the share confirmation to the expiry as well', async () => {
@@ -833,7 +937,143 @@ describe('confirmation flow', () => {
       recipe: 'quark-bowl',
       confirm_token: tokenOf(first.text),
     });
-    expect(forever.text).toContain('confirm_token=');
+    // A token that does not match these arguments is now refused with the
+    // reason rather than answered with a fresh prompt — the binding is the
+    // same, the wording is the library's.
+    expect(forever.text).toContain('invalid, expired');
+  });
+});
+
+/**
+ * The point of the approval path: a client that can put a question in front of a
+ * person gets asked, instead of a token that only proves the same call was made
+ * twice. Every other test in this file drives the token path, and would pass
+ * just as well against a server that silently never asks — so the control below
+ * ("a capable client is not offered a token") is the one that has to fail if the
+ * wiring is undone.
+ */
+describe('approval through the client', () => {
+  const GUARDED: [string, Record<string, unknown>, string][] = [
+    ['delete_recipe', { recipe: 'quark-bowl' }, 'DELETE'],
+    [
+      'delete_shopping_list',
+      { list_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'delete_recipe_comment',
+      { comment_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'merge_foods',
+      {
+        from_id: '33333333-3333-4333-8333-333333333333',
+        to_id: '44444444-4444-4444-8444-444444444444',
+      },
+      'PUT',
+    ],
+    [
+      'delete_cookbook',
+      { cookbook_id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    ['delete_mealplan_entry', { entry_id: 4242 }, 'DELETE'],
+    [
+      'delete_organizer',
+      { kind: 'tag', id: '22222222-2222-4222-8222-222222222222' },
+      'DELETE',
+    ],
+    [
+      'delete_shopping_list_items',
+      { item_ids: ['22222222-2222-4222-8222-222222222222'] },
+      'DELETE',
+    ],
+    ['create_share_token', { recipe: 'quark-bowl' }, 'POST'],
+  ];
+
+  it.each(GUARDED)(
+    '%s asks the user, and goes ahead once they accept',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect({}, 'accept');
+      const { isError } = await callText(client, name, args);
+      expect(client.prompts).toHaveLength(1);
+      expect(isError).toBe(false);
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(true);
+    }
+  );
+
+  it.each(GUARDED)(
+    '%s does nothing when declined',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect({}, 'decline');
+      const { text, isError } = await callText(client, name, args);
+      expect(isError).toBe(true);
+      expect(text).toContain('declined');
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(false);
+    }
+  );
+
+  it.each(GUARDED)(
+    '%s refuses a token it never issued',
+    async (name, args, method) => {
+      const spy = mockFetch();
+      const client = await connect();
+      const { text, isError } = await callText(client, name, {
+        ...args,
+        confirm_token: 'deadbeefdeadbeefdeadbeefdeadbeef',
+      });
+      expect(isError).toBe(true);
+      expect(text).toContain('invalid, expired');
+      expect(callsOf(spy).some((c) => c.method === method)).toBe(false);
+    }
+  );
+
+  it('does not offer a token to a client that can be asked', async () => {
+    // The control. Restore the token-only branch and this is the test that
+    // fails: the others would still pass, because accepting a dialog and
+    // quoting a token back are indistinguishable from the outside.
+    const client = await connect({}, 'accept');
+    mockFetch();
+    const { text } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(text).not.toContain('confirm_token=');
+    expect(client.prompts[0]).toContain('no undelete');
+  });
+
+  it('does nothing when the user declines, and says so', async () => {
+    const spy = mockFetch();
+    const client = await connect({}, 'decline');
+    const { text, isError } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(isError).toBe(true);
+    expect(text).toContain('declined');
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('does nothing when the dialog is cancelled', async () => {
+    const spy = mockFetch();
+    const client = await connect({}, 'cancel');
+    const { isError } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(isError).toBe(true);
+    expect(callsOf(spy).some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('still hands a token to a client that cannot ask anyone', async () => {
+    // The fallback is not a leftover: it is the only gate a client without
+    // elicitation has, and it must keep working unchanged.
+    const client = await connect();
+    mockFetch();
+    const { text } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+    });
+    expect(text).toContain('confirm_token=');
   });
 });
 

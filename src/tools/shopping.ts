@@ -1,15 +1,8 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
-import {
-  confirmationPrompt,
-  setResourceKey,
-  type ConfirmationStore,
-} from '../confirm.js';
-import { resolveRecipe } from '../lookup.js';
-import { run, textResult, ToolInputError, untrustedResult } from '../result.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
+import { setResourceKey } from 'mcp-approval';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 import {
   confirmTokenParam,
   pageParam,
@@ -23,6 +16,18 @@ import {
   shoppingListItem,
   shoppingListSummary,
 } from '../shape.js';
+
+import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
+import { contentFingerprint } from '../fingerprint.js';
+import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import { resolveRecipe } from '../lookup.js';
+import {
+  errorResult,
+  run,
+  jsonResult,
+  ToolInputError,
+  untrustedResult,
+} from '../result.js';
 
 const listIdParam = uuidParam.describe(
   'Shopping list UUID, from list_shopping_lists'
@@ -38,8 +43,9 @@ export function registerShoppingReadTools(
       title: 'List shopping lists',
       description:
         'Lists the shopping lists of the household, without their items.',
-      inputSchema: { page: pageParam, per_page: perPageParam(50) },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ page: pageParam, per_page: perPageParam(50) }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -62,14 +68,15 @@ export function registerShoppingReadTools(
       title: 'Get shopping list',
       description:
         'Fetches one shopping list with all of its items, checked and unchecked.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         include_checked: z
           .boolean()
           .optional()
           .describe('Include items already ticked off, default true'),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ list_id, include_checked }) =>
       run(async () => {
@@ -93,15 +100,17 @@ export function registerShoppingReadTools(
 export function registerShoppingWriteTools(
   server: McpServer,
   api: MealieApi,
-  confirmations: ConfirmationStore
+  confirmations: ConfirmationStore,
+  approval: Approver
 ): void {
   server.registerTool(
     'create_shopping_list',
     {
       title: 'Create shopping list',
       description: 'Creates an empty shopping list in the household.',
-      inputSchema: { name: z.string().trim().min(1).max(255) },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      inputSchema: z.object({ name: z.string().trim().min(1).max(255) }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ name }) =>
       run(async () => {
@@ -117,23 +126,45 @@ export function registerShoppingWriteTools(
       description:
         'Deletes a shopping list and everything on it. Requires confirmation: ' +
         'call once to receive a token, then again with that token.',
-      inputSchema: { list_id: listIdParam, confirm_token: confirmTokenParam },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: z.object({
+        list_id: listIdParam,
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({ deleted_list_id: z.string() }),
     },
-    async ({ list_id, confirm_token }) =>
+    async ({ list_id, confirm_token }, mcp) =>
       run(async () => {
         const key = `delete_shopping_list:${list_id}`;
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `delete the shopping list with id ${list_id} and every item on it`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `delete the shopping list with id ${list_id} and every item on it`,
+            consequence:
+              'The list and its items cannot be restored. Recipes and meal plans ' +
+              'that fed it are untouched.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_shopping_list',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_shopping_list did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         await api.delete(`/api/households/shopping/lists/${list_id}`);
-        return textResult(`Deleted the shopping list with id ${list_id}.`);
+        return jsonResult({ deleted_list_id: list_id });
       })
   );
 
@@ -145,15 +176,16 @@ export function registerShoppingWriteTools(
         'Adds items to a shopping list as free text ("2 tbsp olive oil"). Mealie ' +
         'does not split these into food and unit automatically — run ' +
         'parse_ingredients first if that matters.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         items: z
           .array(z.string().trim().min(1).max(1000))
           .min(1)
           .max(100)
           .describe('The lines to add, one item each'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, items }) =>
       run(async () => {
@@ -184,8 +216,11 @@ export function registerShoppingWriteTools(
       title: 'Tick off or change shopping list items',
       description:
         'Changes items on a shopping list — most often ticking them off. Only ' +
-        'the given fields are changed; the rest of each item is preserved.',
-      inputSchema: {
+        'the given fields are changed; the rest of each item is preserved. ' +
+        'Ticking off and changing quantities is immediate; replacing the text ' +
+        'of the items with note requires confirmation, because that text is ' +
+        'overwritten on every item named and Mealie keeps no copy.',
+      inputSchema: z.object({
         list_id: listIdParam,
         item_ids: z
           .array(uuidParam)
@@ -208,10 +243,15 @@ export function registerShoppingWriteTools(
           .max(1000)
           .optional()
           .describe('Replace the text of every listed item'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+        confirm_token: confirmTokenParam,
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: marked(),
     },
-    async ({ list_id, item_ids, checked, quantity, note }) =>
+    async (
+      { list_id, item_ids, checked, quantity, note, confirm_token },
+      mcp
+    ) =>
       run(async () => {
         if (
           checked === undefined &&
@@ -221,6 +261,47 @@ export function registerShoppingWriteTools(
           throw new ToolInputError(
             'Nothing to change: give at least one of checked, quantity or note.'
           );
+        }
+
+        // `note` is the only one of the three that destroys anything: it writes
+        // the same text over *every* item named, so one call with a hundred ids
+        // replaces a hundred lines somebody wrote. A tick and a quantity are a
+        // marker and a number, and gating those would train whoever answers the
+        // dialog to stop reading it.
+        if (note !== undefined) {
+          // The item set is fingerprinted by the library's own helper, so a
+          // confirmation for two items cannot execute against three; the note
+          // is fingerprinted alongside it, so it cannot be turned onto
+          // different text for the same items.
+          const key = `${setResourceKey('update_shopping_list_items', item_ids)}:${contentFingerprint({ note })}`;
+          const outcome = await approval.requestApproval(
+            server,
+            mcp,
+            confirmations,
+            {
+              what: `replace the text of ${item_ids.length} item(s) on the shopping list with id ${list_id}`,
+              consequence:
+                'Every item named gets the same new text. What each of them said ' +
+                'before is not kept anywhere.',
+              details: [{ label: 'New text', value: note }],
+              resourceKey: key,
+              token: confirm_token,
+              toolName: 'update_shopping_list_items',
+              hint: 'Tick to go ahead, leave it to cancel.',
+            }
+          );
+          // A token that was sent and did not match is refused with the reason
+          // rather than answered with a fresh prompt; the sentence is the
+          // library's, so every server refuses in the same words.
+          if (outcome.decision === 'rejected') {
+            return errorResult(outcome.reason);
+          }
+          if (outcome.decision === 'declined') {
+            return errorResult(
+              `The user declined. update_shopping_list_items did nothing.`
+            );
+          }
+          if (outcome.decision === 'pending') return outcome.result;
         }
 
         // Mealie's bulk update is a REPLACE, not a patch: every field missing from
@@ -272,36 +353,61 @@ export function registerShoppingWriteTools(
         'Removes items from a shopping list for good. To merely tick something ' +
         'off, use update_shopping_list_items with checked=true. Requires ' +
         'confirmation: call once to receive a token, then again with that token.',
-      inputSchema: {
+      inputSchema: z.object({
         item_ids: z
           .array(uuidParam)
           .min(1)
           .max(100)
           .describe('Item UUIDs from get_shopping_list'),
         confirm_token: confirmTokenParam,
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+      annotations: DESTRUCTIVE,
+      outputSchema: plain({
+        removed_count: z.number().int(),
+        removed_item_ids: z.array(z.string()),
+      }),
     },
-    async ({ item_ids, confirm_token }) =>
+    async ({ item_ids, confirm_token }, mcp) =>
       run(async () => {
         // Bound to a fingerprint of the sorted id set: a confirmation for three
         // items must not be usable to delete a fourth that the model appended
         // between the two calls.
         const key = setResourceKey('delete_shopping_list_items', item_ids);
-        if (!confirmations.consume(key, confirm_token)) {
-          return textResult(
-            confirmationPrompt(
-              `permanently remove ${item_ids.length} item(s) from their shopping list`,
-              confirmations.issue(key),
-              confirmations.ttlMinutes
-            )
+        const outcome = await approval.requestApproval(
+          server,
+          mcp,
+          confirmations,
+          {
+            what: `permanently remove ${item_ids.length} item(s) from their shopping list`,
+            consequence:
+              'The items are removed from the list for good. Ticking an item off ' +
+              'with update_shopping_list_items keeps it and is reversible.',
+            resourceKey: key,
+            token: confirm_token,
+            toolName: 'delete_shopping_list_items',
+            hint: 'Tick to go ahead, leave it to cancel.',
+          }
+        );
+        // A token that was sent and did not match is refused with the reason
+        // rather than answered with a fresh prompt; the sentence is the
+        // library's, so every server refuses in the same words.
+        if (outcome.decision === 'rejected') {
+          return errorResult(outcome.reason);
+        }
+        if (outcome.decision === 'declined') {
+          return errorResult(
+            `The user declined. delete_shopping_list_items did nothing.`
           );
         }
+        if (outcome.decision === 'pending') return outcome.result;
         // The ids go in the query string; this endpoint takes no body.
         await api.delete(
           `/api/households/shopping/items${query({ ids: item_ids })}`
         );
-        return textResult(`Removed ${item_ids.length} item(s).`);
+        return jsonResult({
+          removed_count: item_ids.length,
+          removed_item_ids: item_ids,
+        });
       })
   );
 
@@ -314,7 +420,7 @@ export function registerShoppingWriteTools(
         'is already there. Mealie remembers the recipe on the list, so ' +
         'remove_recipe_from_shopping_list can take exactly these ingredients ' +
         'back off again.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         recipe: recipeRefParam,
         servings_multiplier: z
@@ -323,8 +429,9 @@ export function registerShoppingWriteTools(
           .max(100)
           .optional()
           .describe('Scale the ingredient quantities, default 1'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {
@@ -348,7 +455,7 @@ export function registerShoppingWriteTools(
         "Takes a recipe's ingredients back off a shopping list. Items that were " +
         'also needed by another recipe on the list stay, with their quantity ' +
         'reduced.',
-      inputSchema: {
+      inputSchema: z.object({
         list_id: listIdParam,
         recipe: recipeRefParam,
         servings_multiplier: z
@@ -357,8 +464,9 @@ export function registerShoppingWriteTools(
           .max(100)
           .optional()
           .describe('How much of the recipe to remove, default 1'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      }),
+      annotations: WRITE,
+      outputSchema: marked(),
     },
     async ({ list_id, recipe, servings_multiplier }) =>
       run(async () => {
