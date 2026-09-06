@@ -32,6 +32,9 @@
     "dist",
     "!dist/**/*.map"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },

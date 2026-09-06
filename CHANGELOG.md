@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file nobody could open. `dist/**/*.js` is unchanged; the package is about a
   fifth smaller.
 
+### Fixed
+
+- `publishConfig.access` is now `public`. This package is scoped, and npm
+  publishes a scoped package as `restricted` unless told otherwise — every other
+  scoped server in the family carried the field and this one did not. The
+  published versions are unaffected: npm keeps the visibility a package already
+  has, so this closes a hole that would only have opened on a first publish
+  under a new name.
+
 [Unreleased]: https://github.com/ni-c/mealie-mcp/compare/v0.3.0...HEAD
 
 ## [0.3.0] - 2026-09-03
