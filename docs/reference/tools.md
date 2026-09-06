@@ -44,6 +44,8 @@ made to talk to somebody outside itself: `import_recipe_from_url`,
 
 ### search_recipes
 
+**essential**
+
 Searches the recipe collection. Returns summaries — name, slug, id, times,
 rating, tags and categories — without ingredients or steps; use `get_recipe` for
 those. All filters combine with AND; within one filter the entries are OR unless
@@ -67,6 +69,8 @@ the matching `require_all_*` flag is set.
 | `per_page` | number | no | Entries to return, default 25, max 100 |
 
 ### get_recipe
+
+**essential**
 
 Fetches one recipe with everything needed to cook it: ingredients, steps, times,
 yield, notes and nutrition. Accepts the slug or the UUID.
@@ -94,6 +98,8 @@ on a collection of plain-text ingredients it returns nothing; use
 
 ### create_recipe
 
+**essential**
+
 Creates a recipe from the given fields. To add one from a website use
 `import_recipe_from_url` instead — it fills in far more.
 
@@ -113,7 +119,7 @@ Creates a recipe from the given fields. To add one from a website use
 | `notes` | { title, text }[] | no | Notes attached to the recipe |
 | `source_url` | string | no | Original source of the recipe, stored as `orgURL` |
 
-### update_recipe
+### update_recipe 👤
 
 Changes individual fields of a recipe. Only the fields given are touched;
 everything else keeps its value. Passing an empty array for ingredients,
@@ -147,7 +153,7 @@ by it.
 | `recipe` | string | yes | Recipe slug or UUID |
 | `timestamp` | string | yes | ISO 8601 date or date-time, e.g. `2026-08-18` or `2026-08-18T19:30:00Z` |
 
-### delete_recipe
+### delete_recipe 👤
 
 Deletes a recipe permanently, together with its comments, timeline and images.
 **Asks a person first.**
@@ -172,6 +178,8 @@ import came out empty.
 | `url` | string | yes | Address of the recipe page to test — public `http`/`https` only |
 
 ### import_recipe_from_url
+
+**essential**
 
 Has Mealie fetch a recipe page and save it as a new recipe. The fetch happens on
 the Mealie server, not here. Everything the page contains — name, description,
@@ -238,7 +246,7 @@ front.
 | `kind` | enum | yes | `tag` \| `category` \| `tool` |
 | `name` | string | yes | Name of the new organizer |
 
-### update_organizer
+### update_organizer 👤
 
 Renames a tag, category or tool. Mealie regenerates the slug from the new name,
 so anything referring to the old slug stops matching.
@@ -249,7 +257,7 @@ so anything referring to the old slug stops matching.
 | `id` | string (UUID) | yes | UUID from `list_organizers` |
 | `name` | string | yes | The new name |
 
-### delete_organizer
+### delete_organizer 👤
 
 Deletes a tag, category or tool. The recipes themselves are kept, but they lose
 the assignment. **Asks a person first.**
@@ -287,7 +295,7 @@ it.
 | `description` | string | no | Description |
 | `label_id` | string (UUID) | no | Shopping-list label to file this food under |
 
-### merge_foods
+### merge_foods 👤
 
 Points every ingredient that uses one food at another one and deletes the source
 food. **Asks a person first.** The token is bound to the ordered pair — swapping the two arguments would
@@ -324,7 +332,7 @@ Adds a measurement unit to the group vocabulary.
 | `fraction` | boolean | no | Show quantities as fractions (½ cup) rather than decimals |
 | `description` | string | no | Description |
 
-### merge_units
+### merge_units 👤
 
 Points every ingredient that uses one unit at another one and deletes the source
 unit. **Asks a person first.** As with `merge_foods`, the token is bound to the merge direction.
@@ -363,11 +371,15 @@ recipe reference or a free-text note.
 
 ### get_todays_meals
 
+**essential**
+
 Returns the recipes planned for today, as Mealie computes "today" for the
 household. Answers with a bare list, not a paginated envelope. Takes no
 parameters.
 
 ### create_mealplan_entry
+
+**essential**
 
 Puts a recipe or a free-text note on the meal plan for one day. Give either a
 recipe or a title, not both — Mealie stores a plan entry as one or the other.
@@ -392,7 +404,7 @@ configured in the household.
 | `date` | string | yes | Day of the meal, `YYYY-MM-DD` |
 | `entry_type` | enum | yes | `breakfast` \| `lunch` \| `dinner` \| `side` \| `snack` \| `drink` \| `dessert` |
 
-### update_mealplan_entry
+### update_mealplan_entry 👤
 
 Moves an entry to another day or slot, or replaces the recipe behind it. The
 current entry is read first and the changes merged onto it, because Mealie's
@@ -407,7 +419,7 @@ route is a full-object `PUT`.
 | `title` | string | no | New title |
 | `text` | string | no | New note |
 
-### delete_mealplan_entry
+### delete_mealplan_entry 👤
 
 Removes one entry from the meal plan. The recipe itself is not touched.
 **Asks a person first.**
@@ -420,6 +432,8 @@ Removes one entry from the meal plan. The recipe itself is not touched.
 ## Shopping
 
 ### list_shopping_lists
+
+**essential**
 
 Lists the shopping lists of the household, without their items.
 
@@ -445,7 +459,7 @@ Creates an empty shopping list in the household.
 | --- | --- | --- | --- |
 | `name` | string | yes | Name of the new list |
 
-### delete_shopping_list
+### delete_shopping_list 👤
 
 Deletes a shopping list and everything on it. **Asks a person first.**
 
@@ -465,7 +479,7 @@ if that matters.
 | `list_id` | string (UUID) | yes | Shopping list UUID, from `list_shopping_lists` |
 | `items` | string[] | yes | The lines to add, one item each (1–100) |
 
-### update_shopping_list_items
+### update_shopping_list_items 👤
 
 Changes items on a shopping list — most often ticking them off. Only the given
 fields are changed; the rest of each item is preserved (the server reads the
@@ -480,7 +494,7 @@ receive). At least one of `checked`, `quantity` or `note` must be given.
 | `quantity` | number | no | Set the quantity of every listed item |
 | `note` | string | no | Replace the text of every listed item |
 
-### delete_shopping_list_items
+### delete_shopping_list_items 👤
 
 Removes items from a shopping list for good. To merely tick something off, use
 `update_shopping_list_items` with `checked=true`. **Asks a person first.** The
@@ -493,6 +507,8 @@ items cannot delete a fourth appended between the two calls.
 | `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
 ### add_recipe_to_shopping_list
+
+**essential**
 
 Adds a recipe's ingredients to a shopping list, merging them with what is
 already there. Mealie remembers the recipe on the list, so
@@ -538,7 +554,7 @@ UUID.
 | `cookbook` | string | yes | Cookbook slug or UUID, from `list_cookbooks` |
 | `per_page` | number | no | Recipes to return, default 50, max 100 |
 
-### create_cookbook
+### create_cookbook 👤
 
 Creates a cookbook — a named, saved view of the recipe collection. Without a
 filter it matches every recipe; the filter itself is written in Mealie's own
@@ -551,7 +567,7 @@ query language and is easiest to build in the web UI.
 | `query_filter` | string | no | Mealie query filter, e.g. `tags.name IN ["Dessert"]`. Passed through verbatim; an invalid expression is rejected by Mealie with a 422 |
 | `is_public` | boolean | no | Make the cookbook readable without a login, default false |
 
-### delete_cookbook
+### delete_cookbook 👤
 
 Deletes a cookbook. The recipes it matched are not touched — a cookbook is only
 a saved filter. **Asks a person first.**
@@ -585,7 +601,7 @@ are attributed to the user the API token belongs to.
 | `recipe` | string | yes | Recipe slug or UUID |
 | `text` | string | yes | The comment text |
 
-### delete_recipe_comment
+### delete_recipe_comment 👤
 
 Deletes a comment. **Asks a person first.**
 
@@ -636,7 +652,7 @@ without an account.
 | --- | --- | --- | --- |
 | `recipe` | string | no | Restrict the result to one recipe (slug or UUID) |
 
-### create_share_token
+### create_share_token 👤
 
 Creates a link that lets anyone read one recipe without logging in. **Requires a
 confirmation token: call once to receive one, call again with it** — guarded like
@@ -649,7 +665,7 @@ tool that widens who can see the data.
 | `expires_at` | string | no | ISO 8601 date or date-time when the link stops working. Omitted, it never expires — prefer setting a date |
 | `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
 
-### delete_share_token
+### delete_share_token 👤
 
 Revokes a share link, so the recipe is no longer readable through it. **Asks a
 person first.**
