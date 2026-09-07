@@ -5,6 +5,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   httpUrl,
+  isoTimestampParam,
   orderDirectionParam,
   pageParam,
   perPageParam,
@@ -31,6 +32,7 @@ import {
   resolveRecipe,
 } from '../lookup.js';
 import { contentFingerprint, presentFields } from '../fingerprint.js';
+import { cleanText } from '../text.js';
 import {
   errorResult,
   run,
@@ -108,6 +110,7 @@ export function registerRecipeReadTools(
           .string()
           .trim()
           .min(1)
+          .max(255)
           .optional()
           .describe(
             'Restrict the result to a cookbook, by slug or UUID. Cannot be ' +
@@ -522,7 +525,7 @@ export function registerRecipeWriteTools(
           // empty recipe behind that nobody knows about.
           const reason = error instanceof Error ? error.message : String(error);
           throw new ToolInputError(
-            `The recipe "${slug}" was created, but filling in its fields failed: ${reason}\n` +
+            `The recipe "${slug.slice(0, 255)}" was created, but filling in its fields failed: ${cleanText(reason, 300)}\n` +
               'Use update_recipe to complete it, or delete_recipe to remove it.'
           );
         }
@@ -574,7 +577,7 @@ export function registerRecipeWriteTools(
             mcp,
             confirmations,
             {
-              what: `replace ${Object.keys(replacing).sort().join(', ')} on the recipe with id ${id}`,
+              what: `replace ${Object.keys(replacing).toSorted().join(', ')} on the recipe with id ${id}`,
               consequence:
                 'Mealie keeps no version history. The current text is gone once ' +
                 'this is written, and there is nowhere to read it back from.',
@@ -657,16 +660,9 @@ export function registerRecipeWriteTools(
         'and sorts by it.',
       inputSchema: z.object({
         recipe: recipeRefParam,
-        timestamp: z
-          .string()
-          .trim()
-          .regex(
-            /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/,
-            'must be an ISO 8601 date or date-time'
-          )
-          .describe(
-            'When it was made, e.g. 2026-08-18 or 2026-08-18T19:30:00Z'
-          ),
+        timestamp: isoTimestampParam.describe(
+          'When it was made, e.g. 2026-08-18 or 2026-08-18T19:30:00Z'
+        ),
       }),
       annotations: WRITE,
       outputSchema: plain({ recipe: z.string(), last_made: z.string() }),

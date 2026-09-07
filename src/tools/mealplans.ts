@@ -21,7 +21,7 @@ import {
   ToolInputError,
   untrustedResult,
 } from '../result.js';
-import { listFrom, mealplanEntry, paginationOf } from '../shape.js';
+import { listFrom, mealplanEntry, paginationOf, rec } from '../shape.js';
 
 const ENTRY_TYPES = [
   'breakfast',
@@ -240,7 +240,7 @@ export function registerMealplanWriteTools(
             mcp,
             confirmations,
             {
-              what: `replace the ${Object.keys(replacing).sort().join(' and ')} of meal plan entry ${entry_id}`,
+              what: `replace the ${Object.keys(replacing).toSorted().join(' and ')} of meal plan entry ${entry_id}`,
               consequence:
                 'Mealie keeps no history of a plan entry. What is written there ' +
                 'now is gone once this is saved.',
@@ -267,9 +267,9 @@ export function registerMealplanWriteTools(
         // Mealie's plan-entry route is a PUT over the whole entry, so the current
         // state is read first and the changes are merged onto it. Sending only the
         // changed fields would blank the rest.
-        const current = (await api.get(
-          `/api/households/mealplans/${entry_id}`
-        )) as Record<string, unknown>;
+        const current = rec(
+          await api.get(`/api/households/mealplans/${entry_id}`)
+        );
         const recipeId =
           recipe === undefined
             ? undefined

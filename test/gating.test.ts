@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { callsOf, callText, confirmed, connect, mockFetch } from './harness.js';
+import {
+  callsOf,
+  callText,
+  confirmed,
+  connect,
+  mockFetch,
+  tokenOf,
+} from './harness.js';
 
 /**
  * What the guard is for, asserted over the whole catalogue rather than tool by
@@ -82,8 +89,8 @@ describe('the destructive line and the guard follow each other', () => {
     const destructive = tools
       .filter((tool) => tool.annotations?.destructiveHint === true)
       .map((tool) => tool.name)
-      .sort();
-    expect(destructive).toEqual(Object.keys(DESTRUCTIVE_CALLS).sort());
+      .toSorted();
+    expect(destructive).toEqual(Object.keys(DESTRUCTIVE_CALLS).toSorted());
   });
 
   it('writes nothing on the first call of any destructive tool', async () => {
@@ -301,5 +308,100 @@ describe('update_mealplan_entry', () => {
       ...current,
       text: 'Replaced',
     });
+  });
+});
+
+describe('a token is bound to everything the dialog names', () => {
+  // `create_cookbook` said "its name, description and saved filter become
+  // readable outside the instance" and bound the name alone: a token issued
+  // for one description executed with another.
+  it('create_cookbook: a changed description or filter needs a new token', async () => {
+    for (const change of [
+      { description: 'other' },
+      { query_filter: 'tags.name IN ["Other"]' },
+    ]) {
+      const spy = mockFetch();
+      const client = await connect();
+      const first = await callText(client, 'create_cookbook', {
+        name: 'Public',
+        description: 'mine',
+        query_filter: 'tags.name IN ["Dessert"]',
+        is_public: true,
+      });
+      const { isError } = await callText(client, 'create_cookbook', {
+        name: 'Public',
+        description: 'mine',
+        query_filter: 'tags.name IN ["Dessert"]',
+        is_public: true,
+        ...change,
+        confirm_token: tokenOf(first.text),
+      });
+      expect(isError, JSON.stringify(change)).toBe(true);
+      expect(
+        callsOf(spy).filter((call) => call.method !== 'GET'),
+        JSON.stringify(change)
+      ).toEqual([]);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('create_cookbook: the same arguments execute', async () => {
+    const spy = mockFetch();
+    const client = await connect();
+    const { isError } = await confirmed(client, 'create_cookbook', {
+      name: 'Public',
+      description: 'mine',
+      query_filter: 'tags.name IN ["Dessert"]',
+      is_public: true,
+    });
+    expect(isError).toBe(false);
+    expect(callsOf(spy).filter((call) => call.method === 'POST')).toHaveLength(
+      1
+    );
+  });
+
+  it('merge_foods: a token for one direction does not run the other', async () => {
+    const spy = mockFetch();
+    const client = await connect();
+    const first = await callText(client, 'merge_foods', {
+      from_id: TARGET_ID,
+      to_id: OTHER_ID,
+    });
+    const { isError } = await callText(client, 'merge_foods', {
+      from_id: OTHER_ID,
+      to_id: TARGET_ID,
+      confirm_token: tokenOf(first.text),
+    });
+    expect(isError).toBe(true);
+    expect(callsOf(spy).filter((call) => call.method !== 'GET')).toEqual([]);
+  });
+
+  it('update_shopping_list_items: the list is part of what was approved', async () => {
+    const spy = mockFetch();
+    const client = await connect();
+    const first = await callText(client, 'update_shopping_list_items', {
+      list_id: LIST_ID,
+      item_ids: [TARGET_ID],
+      note: 'Replaced',
+    });
+    const { isError } = await callText(client, 'update_shopping_list_items', {
+      list_id: OTHER_ID,
+      item_ids: [TARGET_ID],
+      note: 'Replaced',
+      confirm_token: tokenOf(first.text),
+    });
+    expect(isError).toBe(true);
+    expect(callsOf(spy).filter((call) => call.method !== 'GET')).toEqual([]);
+  });
+
+  it('refuses a confirm_token longer than any token that was issued', async () => {
+    mockFetch();
+    const client = await connect();
+    const { isError, text } = await callText(client, 'delete_recipe', {
+      recipe: 'quark-bowl',
+      confirm_token: 'a'.repeat(600),
+    });
+    expect(isError).toBe(true);
+    expect(text).toMatch(/512|too big|at most/i);
   });
 });

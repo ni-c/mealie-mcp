@@ -1,3 +1,4 @@
+import fc from 'fast-check';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -266,5 +267,120 @@ describe('MealieApi.request', () => {
     expect(
       spy.mock.calls.map(([, init]) => (init as RequestInit).method)
     ).toEqual(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+  });
+});
+
+describe('the status is decided before the body is read', () => {
+  // A reverse proxy answering 401 with a login page of megabytes used to
+  // surface as "more than the byte limit" — the size, not the status, and no
+  // word about credentials.
+  it('reports a 401 with a body past the cap as a 401, hint included', async () => {
+    respondWith(
+      new Response('x'.repeat(9 * 1024 * 1024), {
+        status: 401,
+        headers: { 'content-type': 'text/html' },
+      })
+    );
+    const error = await new MealieApi(config).get('/api/x').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(MealieApiError);
+    expect((error as MealieApiError).status).toBe(401);
+    // Cut, not refused: the body is a hint and a hint has a ceiling.
+    expect((error as MealieApiError).body.length).toBeLessThanOrEqual(
+      64 * 1024 + 4
+    );
+  });
+
+  it('reports a 502 whose declared length is past the cap as a 502', async () => {
+    respondWith(
+      new Response('<html>gateway</html>', {
+        status: 502,
+        headers: { 'content-length': String(9 * 1024 * 1024) },
+      })
+    );
+    await expect(new MealieApi(config).get('/api/x')).rejects.toMatchObject({
+      status: 502,
+    });
+  });
+
+  it('still refuses an oversized success body', async () => {
+    respondWith(
+      new Response('x'.repeat(9 * 1024 * 1024), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    await expect(new MealieApi(config).get('/api/x')).rejects.toThrow(
+      /8388608 byte limit/
+    );
+  });
+});
+
+describe('a header value is checked before the runtime can quote it', () => {
+  // undici's refusal reads `Headers.append: "<value>" is an invalid header
+  // value.` — for Authorization, the value is the token.
+  it('refuses a token with a line break without echoing it', async () => {
+    const spy = respondWith(jsonResponse({}));
+    const secret = `eyJ${'a'.repeat(40)}`;
+    const api = new MealieApi({ ...config, token: `${secret}\n${secret}` });
+    const error = await api.get('/api/x').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('Authorization header');
+    expect((error as Error).message).not.toContain(secret);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('refuses an accept-language a header cannot carry', async () => {
+    const spy = respondWith(jsonResponse({}));
+    const api = new MealieApi({ ...config, acceptLanguage: 'de\r\nX: y' });
+    await expect(api.get('/api/x')).rejects.toThrow(/Accept-Language header/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('never lets the token into a result, whatever character it carries', async () => {
+    // The whole path: config → request → run(). The property is on the
+    // result text a model would read.
+    const { run } = await import('../src/result.js');
+    await fc.assert(
+      fc.asyncProperty(
+        fc.string({ minLength: 20, maxLength: 60, unit: 'binary' }),
+        async (token) => {
+          respondWith(jsonResponse({}));
+          const api = new MealieApi({ ...config, token });
+          const result = await run(async () => {
+            await api.get('/api/x');
+            return { content: [{ type: 'text', text: 'ok' }] };
+          });
+          const text = JSON.stringify(result);
+          // Twenty characters of the token, or the token was not quoted.
+          expect(text).not.toContain(token.slice(0, 20));
+          vi.restoreAllMocks();
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+});
+
+describe('readErrorText on a stub without a stream', () => {
+  it('cuts a long error body read through text()', async () => {
+    respondWith({
+      headers: { get: () => null },
+      body: null,
+      ok: false,
+      status: 503,
+      text: async () => 'y'.repeat(200_000),
+    } as unknown as Response);
+    const error = await new MealieApi(config).get('/api/x').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(MealieApiError);
+    expect((error as MealieApiError).body.length).toBe(64 * 1024);
   });
 });

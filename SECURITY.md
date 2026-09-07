@@ -156,33 +156,58 @@ well. For the guarded `update_*` calls it is bound to a fingerprint of the repla
 values too, so a confirmation shown for one new instruction list cannot be spent on a
 call that clears the list instead.
 
-### Binding is not freshness
+### Binding and freshness
 
-`mcp-approval` seals the request state it carries out through the client and back
-(HMAC, via the SDK's `createRequestStateCodec`), and that seal proves **binding**: a
-reply whose state does not open, or opens onto a different resource key, is treated as
-no answer at all. It does not prove **freshness** — nothing in it says an answer has
-not been used before. Within the state's lifetime, a replayed approval for the _same_
-operation on the _same_ target is indistinguishable from the original.
+`src/index.ts` serves stdio through the SDK's `serveStdio`, which negotiates both
+protocol eras: on `2025-11-25` the SDK bridges the elicitation server-side and the
+question and the answer never leave the process; on `2026-07-28` the dialog is a
+_return value_ — the call ends with `input_required`, the sealed `requestState`
+travels out through the client, and the client retries carrying the answer.
 
-For this server that is currently unreachable rather than merely unlikely, and the
-reason is worth writing down because it will change:
+On that second path `mcp-approval` seals the state (HMAC, via the SDK's
+`createRequestStateCodec`), and the seal proves **binding**: a reply whose state does
+not open, or opens onto a different resource key, is treated as no answer at all.
+Binding alone is not **freshness** — a seal says nothing about whether an answer has
+been used before, and with a resource key that is the same every time a replay would
+land. So since `mcp-approval` 0.8.1 the state also carries a nonce that is spent on
+the first answer, accepted _or_ declined; a second presentation of the same state is
+no answer, and produces a fresh question rather than an action. The record of spent
+nonces is per process: a restart forgets it, and the state's own lifetime (fifteen
+minutes) is what bounds that window. The fallback path has the same property from
+the other side — `ConfirmationStore` tokens are single-use and spent on consumption,
+which the integration suite pins.
 
-- The sealed `requestState` only travels over the wire on protocol revision
-  `2026-07-28`, where the person's answer comes back as `inputResponses` on a retry.
-- The SDK pinned here (`@modelcontextprotocol/server` 2.x) reports
-  `LATEST_PROTOCOL_VERSION = "2025-11-25"` and
-  `SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26",
-"2024-11-05", "2024-10-07"]`. `2026-07-28` is not among them.
-- On a `2025-11-25` connection the SDK bridges the elicitation server-side: the
-  question and the answer never leave the process, so there is no token to replay.
+An earlier version of this section argued that the `2026-07-28` path did not exist
+here and that no anti-replay mechanism was therefore needed. Both halves were true of
+a transport this server no longer uses. The guarantee now is the stronger one, and
+the tool that most wants it is `create_share_token`, whose whole purpose is to widen
+access.
 
-The fallback path has an answer of its own regardless: `ConfirmationStore` tokens are
-single-use and spent on consumption, which the integration suite pins.
+## What the instance writes, on its way to the model
 
-So there is **no anti-replay mechanism here, deliberately** — building one against a
-path that does not exist would be untestable code guarding nothing. What this section
-is for: when this server starts negotiating `2026-07-28`, the guarantee changes from
-"the answer cannot be replayed" to "the answer cannot be redirected", and the tool
-that most wants the stronger one is `create_share_token`, whose whole purpose is to
-widen access.
+Every string that comes back from Mealie — a recipe name, a step, a comment, a tag,
+an error body, and the whole object in `get_recipe`'s `raw` mode — is cleaned before
+it is shown: C0 and C1 control characters, DEL, the zero-width set, the BiDi
+embeddings and overrides and the byte-order mark are removed, and every string is cut
+at a length that fits its field (twenty thousand characters in the raw passthroughs,
+less in the projections), with the cut announced in the value. An escape sequence in
+a scraped recipe used to arrive intact. Identifiers — ids, slugs, dates — are
+validated rather than cleaned, because they have to round-trip: one that is not
+shaped like an identifier is dropped, not repaired.
+
+Fields whose name ends like a credential (`password`, `secret`, `token`, `api_key`,
+`private_key`, `passphrase`, matched on the suffix of the normalised name) are
+replaced by `[redacted]` at any depth. Mealie's `extras` is arbitrary key/value data
+written by integrations, and nothing else here knows what an integration stores.
+
+The image scan of `import_recipe_from_html_or_json` reads the document the way
+Mealie's parsers read it: as JSON when it parses (so `"image"` is `image`), as
+JSON text with escapes decoded (so `"http:\/\/…"` — what PHP writes by default — is
+the address it decodes to), and as HTML with character references decoded (so
+`&#49;00.100.100.200` is `100.100.100.200`), in the places extruct and
+recipe_scrapers read: JSON-LD blocks, `<img src>`, `og:image`, `twitter:image`,
+`itemprop="image"` and `<link rel="image_src">`. An absolute address that names a
+scheme and still does not parse is refused rather than passed on, and so is a
+document naming more than 25 hosts or carrying more than 500 image references. The
+scan is one pass over the document; a document of `"image":[` repeated to the size
+limit used to cost 223 seconds.

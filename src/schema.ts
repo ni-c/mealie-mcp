@@ -33,9 +33,25 @@ export const orderDirectionParam = z
 export const confirmTokenParam = z
   .string()
   .min(1)
+  // The store's tokens are 32 hex characters; anything past this bound is
+  // not a token that was ever issued, and it is compared before it is refused.
+  .max(512)
   .optional()
   .describe(
     'Confirmation token from a previous call of this tool with the same arguments. Omit on the first call.'
+  );
+
+/**
+ * An ISO 8601 date or date-time, as `last-made`, timeline events and share
+ * token expiry take it. Bounded before the regex sees it.
+ */
+export const isoTimestampParam = z
+  .string()
+  .trim()
+  .max(40)
+  .regex(
+    /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/,
+    'must be an ISO 8601 date or date-time'
   );
 
 /** A Mealie UUID. Everything except recipes is addressed by one. */

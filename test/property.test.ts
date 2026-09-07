@@ -184,7 +184,10 @@ describe('text and image helpers stay honest', () => {
   it('bounds the content and says when it cut', () => {
     fc.assert(
       fc.property(
-        fc.string({ maxLength: 2000 }),
+        // Printable ASCII: `cap` also strips control characters, which is a
+        // property of its own (test/text.test.ts) and would break the prefix
+        // check here.
+        fc.string({ maxLength: 2000, unit: 'grapheme-ascii' }),
         fc.integer({ min: 1, max: 300 }),
         (text, max) => {
           const capped = cap(text, max);
@@ -226,7 +229,7 @@ describe('text and image helpers stay honest', () => {
   it('builds an image URL whenever the version is present, zero included', () => {
     fc.assert(
       fc.property(
-        fc.stringMatching(/^[0-9a-f]{8}$/),
+        fc.uuid(),
         fc.integer({ min: 0, max: 500 }),
         (id, version) => {
           const url = imageUrl('https://mealie.example.com', {
@@ -244,7 +247,7 @@ describe('text and image helpers stay honest', () => {
 
   it('builds nothing when a part is missing', () => {
     fc.assert(
-      fc.property(fc.stringMatching(/^[0-9a-f]{8}$/), (id) => {
+      fc.property(fc.uuid(), (id) => {
         expect(imageUrl(undefined, { id, image: 1 })).toBeUndefined();
         expect(imageUrl('https://x.example', { image: 1 })).toBeUndefined();
         expect(
@@ -252,6 +255,48 @@ describe('text and image helpers stay honest', () => {
         ).toBeUndefined();
         expect(imageUrl('https://x.example', { id })).toBeUndefined();
       }),
+      RUNS
+    );
+  });
+
+  /**
+   * Both halves of the image URL are the instance's strings and both land in
+   * an address the model may follow, so neither may be anything but what it
+   * claims to be: a UUID and a short number.
+   */
+  it('builds nothing out of an id or a version that is not one', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc
+            .string({ maxLength: 40 })
+            .filter((s) => !/^[0-9a-f-]{36}$/i.test(s)),
+          fc.constant('../../admin'),
+          fc.constant('x?token=1#')
+        ),
+        (id) => {
+          expect(
+            imageUrl('https://x.example', { id, image: 1 })
+          ).toBeUndefined();
+        }
+      ),
+      RUNS
+    );
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.oneof(
+          fc.string({ maxLength: 40 }).filter((s) => !/^[0-9]{1,12}$/.test(s)),
+          fc.double({ noInteger: true }),
+          fc.constant(-1),
+          fc.constant({ toString: () => '1' })
+        ),
+        (id, version) => {
+          expect(
+            imageUrl('https://x.example', { id, image: version })
+          ).toBeUndefined();
+        }
+      ),
       RUNS
     );
   });

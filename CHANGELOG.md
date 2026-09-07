@@ -12,13 +12,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.4.0] - 2026-09-07
 
-### Changed
+### Security
 
-- The tool reference marks the `essential` preset and the tools that ask a
-  person before they act, per tool rather than only in the introduction. A test
-  keeps both sets in step with the code.
+- **The image scan of `import_recipe_from_html_or_json` is one pass over the
+  document, and it decodes what Mealie decodes.** A document of `"image":[`
+  repeated to the 2 MiB limit cost 223 seconds on the thread that serves every
+  request: a 4096-character window was sliced, searched and URL-parsed per key.
+  The scan now reads the document as JSON when it parses (so `"\u0069mage"` is
+  `image`, as it is to Mealie), as JSON text with string escapes decoded (so
+  `"http:\/\/…"` — what PHP's `json_encode` writes by default — is the address
+  it decodes to, where a reader that stopped at the backslash saw `http:` and
+  dropped the candidate), and as HTML with character references decoded (so
+  `&#49;00.100.100.200` is `100.100.100.200`, where the host used to be `&`).
+  Both bypasses were reproduced against the metadata address Mealie's own
+  guard does not stop. It also reads `<meta itemprop="image">` and
+  `<link rel="image_src">`, which extruct reads and the scan did not; refuses
+  an absolute address it cannot parse rather than passing it on, since "cannot
+  parse" is not "harmless" when the next parser is somebody else's; and refuses
+  a document naming more than 25 hosts or carrying more than 500 image
+  references, where the 26th host used to be skipped in silence. A timing table
+  holds every form at the size limit under half a second.
+- **`MEALIE_API_TOKEN` and `MEALIE_ACCEPT_LANGUAGE` are checked for shape at
+  startup, and every header value before a request.** undici refuses a header
+  value with a control character in it by quoting the whole value in its error
+  — for `Authorization`, the whole value is the token — and that error reached
+  the model as the tool result. A token with a line break inside it (the way a
+  wrapped paste arrives) now ends the process with a message that names the
+  variable and its length, and never the value; a language that is not a
+  language range is dropped with the same care. A property test drives random
+  tokens with control characters through the whole path and asserts the result
+  text never carries them.
+- **Every string the instance wrote is cleaned before it is shown.** C0 and C1
+  controls, DEL, the zero-width set, the BiDi overrides and the byte-order mark
+  are removed from every field the projections carry and from the whole object
+  in `get_recipe`'s `raw` mode, `preview_recipe_url`, `parse_ingredients` and
+  `set_recipe_rating`, which used to hand Mealie's object on untouched. Recipes
+  are scraped from arbitrary websites; an escape sequence in a step arrived
+  intact. Identifiers, dates and URLs are validated instead: an id that is not
+  shaped like one is dropped, and the credentials in a stored source URL are
+  redacted.
+- **Fields named like a credential are redacted at any depth** — `password`,
+  `secret`, `token`, `api_key`, `private_key`, `passphrase`, matched on the
+  suffix of the normalised name. Mealie's `extras` is arbitrary key/value data
+  written by integrations, and it travelled through the raw passthroughs as
+  written.
+- **`create_cookbook` binds the confirmation to everything its dialog names.**
+  The consequence said "its name, description and saved filter become readable
+  outside the instance" and the resource key held the name alone, so a token
+  issued for one description executed with another. The key now covers all
+  three, in order, and the dialog shows all three. `create_share_token` and
+  `merge_foods`/`merge_units` build their ordered keys with the library's
+  `orderedResourceKey` instead of a hand-written join, and
+  `update_shopping_list_items` binds the list its sentence names.
+- **The status is decided before the body is read.** A `401` behind a reverse
+  proxy that answers with a login page of megabytes surfaced as "more than the
+  byte limit" — the size, not the status, and no hint about credentials. An
+  error body is now read under its own 64 KiB ceiling that cuts instead of
+  refusing; the 8 MiB cap applies to a success body only.
+- **What `resolveRecipe` hands on is validated, not merely typed.** The id and
+  the slug are the instance's strings, and they went on into a request path, a
+  query-filter literal (`recipe_id="…"`) and the sentence a person is asked to
+  approve; a `"` in the id would have broken out of the filter. The id must be
+  a UUID and the slug a slug, or the recipe is reported as unrecognisable.
+  The same for the user id `set_recipe_rating` puts in a path.
+- **SECURITY.md described a transport this server no longer uses.** The
+  "binding is not freshness" section argued that protocol revision
+  `2026-07-28` was unreachable and that no anti-replay mechanism was therefore
+  needed — while `serveStdio` negotiates that revision and `mcp-approval` 0.8.1
+  made a sealed answer single-use. The section now describes what the code does.
+- **Supply chain.** The release job installs with `--ignore-scripts`, as the
+  audit job and the Dockerfile already did — it is the job that holds the OIDC
+  token; `mcp-publisher` is pinned to v1.8.1 and its published checksum instead
+  of `releases/latest`; `gh release create` verifies the tag; pull requests get
+  `dependency-review-action` at `fail-on-severity: high`; the runtime image no
+  longer carries yarn, corepack or the lockfile; the integration job's checkout
+  keeps no credentials.
+- **mcp-approval 0.8.2.** A sealed dialog answer is single-use since 0.8.1: the
+  same `requestState` presented again within its lifetime used to be accepted
+  again, and with a resource key that is the same every time — a whole stream,
+  a fixed set of targets — every replay landed. npm users on `^0.8.0` already
+  had the fix; the Docker image is built from the lockfile and carried 0.8.0
+  until this release.
+
+### Fixed
+
+- Organizer lookups have a budget per call. `search_recipes` resolves up to
+  sixty names and `update_recipe` up to a hundred, one or two requests each in
+  sequence, and the fifteen-second timeout bounded each request rather than the
+  call. A wall clock of thirty seconds is checked before every request; past it
+  the call says how far it got and what to narrow.
+- A single oversized field no longer makes a recipe unanswerable. A 300 kB
+  `calories` — schema.org nutrition is text Mealie takes from the page — left
+  nothing array-shaped for the budget to shrink, so `get_recipe` threw. Every
+  projected field is bounded, raw strings are cut at twenty thousand characters,
+  and the budget shrinks the array that is largest in bytes rather than in
+  elements, which used to halve a list of three hundred tag names to nothing
+  while forty long instructions stayed.
+- The text block of a marked result stays under the cap with the untrusted
+  preamble included; the budget measured the JSON alone.
+- A `truncated` key the instance carries cannot replace the budget's own notice
+  or fail the answer against its schema; it is dropped alongside `untrusted`
+  and `source`.
+- A list of names — tags, categories, aliases, missing foods — no longer
+  carries `undefined` for a reference without a name, which the text block
+  wrote as `null` and the structured half did not. A property test now feeds
+  every read tool arbitrary JSON, including `1e999`, `-0` and a `__proto__`
+  key, and asserts both channels of each answer agree and no answer reads
+  "Output validation error" or "Cannot read properties".
+- Error bodies and runtime error messages quoted into a result are stripped of
+  control characters, cut, and labelled as the instance's words.
+- `confirm_token`, `search_recipes.cookbook` and every ISO timestamp argument
+  are bounded; the token past 512 characters was compared before it was refused.
+- `MEALIE_URL` is stored as it was checked — the parsed origin and path — rather
+  than as the raw string, and the trailing-slash trim is a loop rather than an
+  unanchored `/\/+$/`.
+- The `ELICITATION` diagnostic describes a long value by its length instead of
+  quoting it, and the wrong-scheme diagnostic for `MEALIE_URL` no longer prints
+  the scheme: a hexadecimal key with a colon after it is a valid URL whose
+  scheme is the key.
+- `get_shopping_list`, `update_shopping_list_items`, `update_mealplan_entry`
+  and the organizer lookups read a `null` or non-object body as an empty record
+  instead of answering "Cannot read properties of null".
+- `get_about` answers with scalars only — the group and household as names, not
+  the whole objects — and cleans the instance's strings before they travel
+  unmarked.
+- `publishConfig.access` is now `public`. This package is scoped, and npm
+  publishes a scoped package as `restricted` unless told otherwise — every other
+  scoped server in the family carried the field and this one did not. The
+  published versions are unaffected: npm keeps the visibility a package already
+  has, so this closes a hole that would only have opened on a first publish
+  under a new name.
 
 ### Added
 
@@ -34,22 +159,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The tool reference marks the `essential` preset and the tools that ask a
+  person before they act, per tool rather than only in the introduction. A test
+  keeps both sets in step with the code.
 - Source maps are no longer published in the npm tarball. Node reads them only
   under `--enable-source-maps`, which nothing here sets, and the maps pointed at
   a `src/` this package does not ship — so a stack trace under that flag named a
   file nobody could open. `dist/**/*.js` is unchanged; the package is about a
   fifth smaller.
-
-### Fixed
-
-- `publishConfig.access` is now `public`. This package is scoped, and npm
-  publishes a scoped package as `restricted` unless told otherwise — every other
-  scoped server in the family carried the field and this one did not. The
-  published versions are unaffected: npm keeps the visibility a package already
-  has, so this closes a hole that would only have opened on a first publish
-  under a new name.
-
-[Unreleased]: https://github.com/ni-c/mealie-mcp/compare/v0.3.0...HEAD
 
 ## [0.3.0] - 2026-09-03
 
@@ -394,6 +511,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
 
+[0.4.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.3.0
 [0.1.2]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.1

@@ -16,6 +16,7 @@ import {
 
 import { assertPathSegment, query, type MealieApi } from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import { orderedResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
 
@@ -141,7 +142,14 @@ export function registerCookbookWriteTools(
         // and saved filter go out, and there is no update_cookbook to take it
         // back with: an accidentally public cookbook can only be deleted.
         if (is_public === true) {
-          const key = `create_cookbook:${name}:public`;
+          // Bound to everything the consequence says goes public — the name,
+          // the description and the filter — in that order. A token issued for
+          // one description used to execute with another.
+          const key = orderedResourceKey('create_cookbook:public', [
+            name,
+            description ?? '',
+            query_filter ?? '',
+          ]);
           const outcome = await approval.requestApproval(
             server,
             mcp,
@@ -152,7 +160,11 @@ export function registerCookbookWriteTools(
                 'Its name, description and saved filter become readable outside ' +
                 'the instance. There is no tool to make it private again — an ' +
                 'unwanted public cookbook has to be deleted.',
-              details: [{ label: 'Cookbook name', value: name }],
+              details: [
+                { label: 'Cookbook name', value: name },
+                { label: 'Description', value: description ?? '(none)' },
+                { label: 'Filter', value: query_filter ?? '(none)' },
+              ],
               resourceKey: key,
               token: confirm_token,
               toolName: 'create_cookbook',

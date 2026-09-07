@@ -36,17 +36,28 @@ export const LONG_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /**
+ * How much of an *error* body is kept. An error body is quoted into a result,
+ * cut to two thousand characters there; reading more than this of it buys
+ * nothing, and a reverse proxy's login page is megabytes.
+ */
+const MAX_ERROR_BYTES = 64 * 1024;
+
+/** The parts of a response the body readers need, typed loosely on purpose:
+ * undici's `Response` and the global one are not assignable to each other. */
+interface BodyLike {
+  headers: { get(name: string): string | null };
+  body: unknown;
+  text(): Promise<string>;
+}
+
+/**
  * Reads a response body, refusing anything past {@link MAX_RESPONSE_BYTES}.
  *
  * `content-length` is checked first because it lets an oversized response be
  * rejected without transferring it, but it is absent on chunked responses and is
  * upstream-controlled either way, so the streaming path enforces the limit again.
  */
-async function readCappedText(response: {
-  headers: { get(name: string): string | null };
-  body: unknown;
-  text(): Promise<string>;
-}): Promise<string> {
+async function readCappedText(response: BodyLike): Promise<string> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
     throw new Error(
@@ -58,11 +69,7 @@ async function readCappedText(response: {
   // Test stubs of fetch commonly return a Response-like object without a stream.
   // Falling back to text() there keeps them working; the content-length check
   // above still applies.
-  if (
-    !body ||
-    typeof (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] !==
-      'function'
-  ) {
+  if (!isAsyncIterable(body)) {
     const text = await response.text();
     if (text.length > MAX_RESPONSE_BYTES) {
       throw new Error(
@@ -85,6 +92,71 @@ async function readCappedText(response: {
     text += decoder.decode(chunk, { stream: true });
   }
   return text + decoder.decode();
+}
+
+/**
+ * Reads the start of an error body and never throws over its size.
+ *
+ * The status is the answer; the body is a hint. A `401` behind a proxy that
+ * answers with a two-megabyte login page used to surface as "more than the
+ * byte limit" — the size, not the status, and no word about credentials.
+ */
+async function readErrorText(response: BodyLike): Promise<string> {
+  const body = response.body as AsyncIterable<Uint8Array> | null | undefined;
+  if (!isAsyncIterable(body)) {
+    const text = await response.text();
+    return text.length > MAX_ERROR_BYTES
+      ? text.slice(0, MAX_ERROR_BYTES)
+      : text;
+  }
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = '';
+  for await (const chunk of body) {
+    const room = MAX_ERROR_BYTES - total;
+    const part = chunk.byteLength > room ? chunk.subarray(0, room) : chunk;
+    total += part.byteLength;
+    text += decoder.decode(part, { stream: true });
+    // Leaving the loop early cancels the stream through the iterator's
+    // `return()`; the rest of the page is never transferred.
+    if (total >= MAX_ERROR_BYTES) break;
+  }
+  return text + decoder.decode();
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
+  return (
+    value !== null &&
+    value !== undefined &&
+    typeof (value as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] ===
+      'function'
+  );
+}
+
+/**
+ * Refuses a header value the runtime would refuse — before the runtime does.
+ *
+ * undici's refusal quotes the whole value in its message, and for the
+ * `Authorization` header the whole value is the token. Checking here means the
+ * error can name the header and nothing else.
+ */
+function assertHeaderValue(name: string, value: string): string {
+  // Written out per code unit rather than as a character class, so no escape
+  // in this file can be turned into a raw byte by an editing tool.
+  let ok = value.length === 0 || (value[0] !== ' ' && value.at(-1) !== ' ');
+  for (let index = 0; ok && index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    ok =
+      code === 0x09 ||
+      (code >= 0x20 && code <= 0x7e) ||
+      (code >= 0x80 && code <= 0xff);
+  }
+  if (!ok) {
+    throw new Error(
+      `the ${name} header cannot be built from the configured value: it carries a character a header cannot hold`
+    );
+  }
+  return value;
 }
 
 export class MealieApiError extends Error {
@@ -138,11 +210,17 @@ export class MealieApi {
     }
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.config.token ?? ''}`,
+      Authorization: assertHeaderValue(
+        'Authorization',
+        `Bearer ${this.config.token ?? ''}`
+      ),
       Accept: 'application/json',
     };
     if (this.config.acceptLanguage) {
-      headers['Accept-Language'] = this.config.acceptLanguage;
+      headers['Accept-Language'] = assertHeaderValue(
+        'Accept-Language',
+        this.config.acceptLanguage
+      );
     }
     const init: RequestInit = {
       method,
@@ -170,11 +248,20 @@ export class MealieApi {
           dispatcher: this.insecureDispatcher,
         } as UndiciRequestInit)
       : await fetch(url, init);
-    const text = await readCappedText(response);
 
+    // The status first, then the body under a ceiling that fits the status:
+    // an error body is a hint and is cut, a success body is the answer and is
+    // refused past the cap. Read the other way round, an oversized error page
+    // hid the status it came with.
     if (!response.ok) {
-      throw new MealieApiError(response.status, text, method, path);
+      throw new MealieApiError(
+        response.status,
+        await readErrorText(response),
+        method,
+        path
+      );
     }
+    const text = await readCappedText(response);
 
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {

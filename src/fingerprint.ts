@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
  */
 export function contentFingerprint(values: Record<string, unknown>): string {
   const canonical = Object.keys(values)
-    .sort()
+    .toSorted()
     .map((key) => [key, values[key]] as const);
   return createHash('sha256')
     .update(JSON.stringify(canonical))

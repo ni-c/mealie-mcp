@@ -4,6 +4,7 @@ import type {
 } from '@modelcontextprotocol/server';
 
 import { MealieApiError } from './api.js';
+import { cleanDeep, cleanText, upstreamText } from './text.js';
 
 export function textResult(text: string): CallToolResult {
   return { content: [{ type: 'text', text }] };
@@ -20,14 +21,22 @@ export function errorResult(text: string): CallToolResult {
  */
 export const MAX_RESULT_BYTES = 200_000;
 
-/** The array field of a result envelope that carries the bulk of the payload. */
+/**
+ * The array field of a result envelope that carries the bulk of the payload.
+ *
+ * Measured in serialised bytes, not in elements: a list of three hundred tag
+ * names is longer than a list of forty instructions and a good deal smaller,
+ * and halving the wrong one down to nothing still leaves the result too big.
+ */
 function largestArrayKey(record: Record<string, unknown>): string | undefined {
   let best: string | undefined;
-  let bestLength = 0;
+  let bestSize = 0;
   for (const [key, value] of Object.entries(record)) {
-    if (Array.isArray(value) && value.length > bestLength) {
+    if (!Array.isArray(value) || value.length === 0) continue;
+    const size = JSON.stringify(value).length;
+    if (size > bestSize) {
       best = key;
-      bestLength = value.length;
+      bestSize = size;
     }
   }
   return best;
@@ -56,10 +65,15 @@ export function budgetedJson(data: unknown, followUp?: string): string {
  */
 export function budget(
   data: unknown,
-  followUp?: string
+  followUp?: string,
+  reserve = 0
 ): Record<string, unknown> {
+  // `reserve` is what the caller puts in the text block beside the JSON — the
+  // untrusted preamble — so the block as emitted stays under the cap, not only
+  // the JSON inside it.
+  const limit = MAX_RESULT_BYTES - reserve;
   const full = JSON.stringify(data, null, 2);
-  if (full.length <= MAX_RESULT_BYTES) {
+  if (full.length <= limit) {
     // Wrapped when it is not already an object. A schema whose root is an
     // array or a scalar is served to a 2025-era client rewritten as
     // `{result: …}`, so the tool would answer in two shapes depending on who
@@ -90,7 +104,7 @@ export function budget(
         },
         items: data.slice(0, keep),
       };
-      if (JSON.stringify(value, null, 2).length <= MAX_RESULT_BYTES) {
+      if (JSON.stringify(value, null, 2).length <= limit) {
         return value;
       }
     }
@@ -107,17 +121,19 @@ export function budget(
       let keep = items.length;
       while (keep > 0) {
         keep = Math.floor(keep / 2);
+        // The notice is written *after* the record, so a `truncated` key the
+        // instance happens to carry cannot replace the one this server wrote.
         const value = {
+          ...record,
+          [key]: items.slice(0, keep),
           truncated: {
             reason,
             returned_items: keep,
             omitted_items: items.length - keep,
             follow_up: hint,
           },
-          ...record,
-          [key]: items.slice(0, keep),
         };
-        if (JSON.stringify(value, null, 2).length <= MAX_RESULT_BYTES) {
+        if (JSON.stringify(value, null, 2).length <= limit) {
           return value;
         }
       }
@@ -164,18 +180,41 @@ const UNTRUSTED_PREAMBLE =
  * through `get_recipe` or `search_recipes`, long after the import that fetched
  * it.
  */
+/**
+ * The longest string a raw passthrough may carry. The projections in
+ * `shape.ts` are stricter; this is the bound for `detail: 'raw'` and the
+ * tools that hand Mealie's object on as it came.
+ */
+const MAX_RAW_STRING = 20_000;
+
+/** The three keys this server writes into every marked result. */
+const RESERVED_KEYS = new Set(['untrusted', 'source', 'truncated']);
+
 export function untrustedResult(
   data: unknown,
   followUp?: string
 ): CallToolResult {
-  // The two marker names are stripped from the payload before they are set, so
-  // the guard cannot be switched off by the content it guards against — and a
-  // recipe is routinely scraped from an arbitrary website.
+  // The marker names are stripped from the payload before they are set, so the
+  // guard cannot be switched off by the content it guards against — and a
+  // recipe is routinely scraped from an arbitrary website. `truncated` is
+  // stripped for the same reason: it is typed in every output schema, and a
+  // string under that name from the instance would fail the whole answer.
+  const stripped =
+    data !== null && typeof data === 'object' && !Array.isArray(data)
+      ? Object.fromEntries(
+          Object.entries(data as Record<string, unknown>).filter(
+            ([key]) => !RESERVED_KEYS.has(key)
+          )
+        )
+      : data;
+  // Cleaned before it is measured, so a single oversized field is cut to a
+  // sentence rather than making the whole recipe unanswerable.
+  const cleaned = cleanDeep(stripped, MAX_RAW_STRING);
   const {
     untrusted: _untrusted,
     source: _source,
     ...rest
-  } = budget(data, followUp);
+  } = budget(cleaned, followUp, UNTRUSTED_PREAMBLE.length + 2);
   const value = {
     untrusted: true as const,
     source: 'mealie' as const,
@@ -197,20 +236,12 @@ const MAX_ERROR_BODY_LENGTH = 2000;
 /**
  * Limits what an upstream error body can inject into the model context: HTML
  * error pages (reverse proxies, WAFs) are dropped entirely, other bodies are
- * truncated.
+ * stripped of control characters, truncated and labelled as the instance's
+ * words. A 422's `detail` array is worth two thousand characters; nothing an
+ * error body says is worth more.
  */
 export function sanitizeErrorBody(body: string): string {
-  const trimmed = body.trim();
-  // Anything markup-shaped: a reverse proxy's error page or a WAF block page.
-  // The check is deliberately loose — an XML declaration, a leading comment or
-  // a doctype followed by a newline are all the same thing here.
-  if (/^(<!doctype|<html[\s>]|<\?xml|<!--)/i.test(trimmed)) {
-    return '(HTML error page omitted)';
-  }
-  if (trimmed.length > MAX_ERROR_BODY_LENGTH) {
-    return `${trimmed.slice(0, MAX_ERROR_BODY_LENGTH)}… (truncated)`;
-  }
-  return trimmed;
+  return upstreamText(body, MAX_ERROR_BODY_LENGTH);
 }
 
 function hintFor(status: number): string {
@@ -278,7 +309,11 @@ export async function run(
         `${error.message}\n${sanitizeErrorBody(error.body)}${hintFor(error.status)}`
       );
     }
+    // A runtime error — undici, the abort signal, a bug — quoted with the same
+    // care as an upstream body: bounded and without control characters. What
+    // it must never carry is the credential; `api.ts` checks every header
+    // value before the runtime can complain about one by quoting it.
     const message = error instanceof Error ? error.message : String(error);
-    return errorResult(`mealie-mcp: ${message}`);
+    return errorResult(`mealie-mcp: ${cleanText(message, 300)}`);
   }
 }

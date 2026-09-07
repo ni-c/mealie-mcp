@@ -12,13 +12,19 @@
  * against the API docs; only `imageUrl` is derived.
  */
 
+import { cleanText, redactUrl } from './text.js';
+
 /** A single oversized field must not be able to consume the whole budget. */
 const NAME_MAX = 300;
 const DESCRIPTION_MAX = 4000;
 const SUMMARY_DESCRIPTION_MAX = 400;
 const TEXT_MAX = 8000;
+/** Short labels — a unit, a food, a username, an event type. */
+const SHORT_MAX = 200;
+/** Identifiers, dates and URLs: bounded, never cleaned, because they round-trip. */
+const IDENT_MAX = 512;
 
-function rec(value: unknown): Record<string, unknown> {
+export function rec(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
@@ -28,9 +34,49 @@ function str(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
+/**
+ * A value the caller has to hand back — an id, a slug, a date — is validated
+ * rather than cleaned: a slug with a control character in it is not a slug
+ * that can be addressed, so it is dropped, not repaired. What comes out is
+ * shaped like an identifier and short enough to stay one.
+ */
+const IDENT_SHAPE = /^[A-Za-z0-9._:+@/-]+$/;
+
+function ident(value: unknown): string | undefined {
+  const text = str(value);
+  return text !== undefined &&
+    text.length <= IDENT_MAX &&
+    IDENT_SHAPE.test(text)
+    ? text
+    : undefined;
+}
+
+/** A UUID, as everything but a recipe slug is addressed by one. */
+const UUID_SHAPE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function uuid(value: unknown): string | undefined {
+  const text = str(value);
+  return text !== undefined && UUID_SHAPE.test(text) ? text : undefined;
+}
+
+/**
+ * A URL the instance stored — `orgURL` is whatever page a recipe was imported
+ * from. Bounded, cleaned like text, and with any credentials in it redacted:
+ * `https://user:pass@host/recipe` is a valid source URL and the model does not
+ * need the password in it.
+ */
+function url(value: unknown): string | undefined {
+  const text = str(value);
+  if (text === undefined) return undefined;
+  return redactUrl(cleanText(text, 2048));
+}
+
 function num(value: unknown): number | undefined {
+  // `+ 0` folds -0 into 0: JSON writes -0 as `0`, and the text block and the
+  // structured half of one answer have to say the same number.
   return typeof value === 'number' && Number.isFinite(value)
-    ? value
+    ? value + 0
     : undefined;
 }
 
@@ -49,12 +95,17 @@ function defined<T extends Record<string, unknown>>(object: T): Partial<T> {
   ) as Partial<T>;
 }
 
-/** Truncates a string field, saying so in the value itself. */
+/**
+ * Cleans and truncates a string field, saying so in the value itself.
+ *
+ * Every text the instance wrote goes through here: recipes are scraped from
+ * arbitrary websites, so a name or a step can carry an escape sequence or a
+ * direction override as easily as a word.
+ */
 export function cap(value: unknown, max: number): string | undefined {
   const text = str(value);
   if (text === undefined) return undefined;
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}… (truncated at ${max} characters)`;
+  return cleanText(text, max);
 }
 
 /**
@@ -96,20 +147,31 @@ export function imageUrl(
   baseUrl: string | undefined,
   recipe: Record<string, unknown>
 ): string | undefined {
-  const id = str(recipe.id);
-  const version = recipe.image;
-  if (!baseUrl || id === undefined || version === null || version === undefined)
-    return undefined;
-  return `${baseUrl}/api/media/recipes/${id}/images/original.webp?version=${String(version)}`;
+  // Both halves are the instance's and both land in a URL the model may
+  // follow: the id has to be a UUID and the version a short number, or there
+  // is no image URL to build.
+  const id = uuid(recipe.id);
+  const version = imageVersion(recipe.image);
+  if (!baseUrl || id === undefined || version === undefined) return undefined;
+  return `${baseUrl}/api/media/recipes/${id}/images/original.webp?version=${version}`;
+}
+
+function imageVersion(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+  return typeof value === 'string' && /^[0-9]{1,12}$/.test(value)
+    ? value
+    : undefined;
 }
 
 /** `{id, name, slug}` of a category, tag or tool reference on a recipe. */
 function namedRef(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
-    slug: str(object.slug),
+    slug: ident(object.slug),
   });
 }
 
@@ -117,13 +179,24 @@ function namedRefs(value: unknown): Record<string, unknown>[] {
   return arr(value).map(namedRef);
 }
 
+/**
+ * The names out of a list of references, without the holes. A reference
+ * without a name used to leave `undefined` in the array, which the text block
+ * wrote as `null` and the structured half did not — one answer, two stories.
+ */
+function names(value: unknown): string[] {
+  return namedRefs(value)
+    .map((ref) => ref.name)
+    .filter((name): name is string => typeof name === 'string');
+}
+
 /** Times are free-text strings in Mealie ("10", "1 hour"), not durations. */
 function times(recipe: Record<string, unknown>): Record<string, unknown> {
   return defined({
-    totalTime: str(recipe.totalTime),
-    prepTime: str(recipe.prepTime),
-    cookTime: str(recipe.cookTime),
-    performTime: str(recipe.performTime),
+    totalTime: cap(recipe.totalTime, SHORT_MAX),
+    prepTime: cap(recipe.prepTime, SHORT_MAX),
+    cookTime: cap(recipe.cookTime, SHORT_MAX),
+    performTime: cap(recipe.performTime, SHORT_MAX),
   });
 }
 
@@ -136,18 +209,18 @@ function ingredient(value: unknown): Record<string, unknown> {
     // whole line and the structured fields are empty.
     display: cap(object.display ?? object.note, TEXT_MAX),
     quantity: num(object.quantity),
-    unit: str(unit.name),
-    food: str(food.name),
+    unit: cap(unit.name, SHORT_MAX),
+    food: cap(food.name, SHORT_MAX),
     note: cap(object.note, TEXT_MAX),
-    title: str(object.title),
-    referenceId: str(object.referenceId),
+    title: cap(object.title, NAME_MAX),
+    referenceId: ident(object.referenceId),
   });
 }
 
 function instruction(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     title: cap(object.title, NAME_MAX),
     text: cap(object.text, TEXT_MAX),
   });
@@ -161,11 +234,21 @@ function note(value: unknown): Record<string, unknown> {
   });
 }
 
-/** Nutrition with the null-valued keys removed — Mealie sends all eleven. */
+/**
+ * Nutrition with the null-valued keys removed — Mealie sends all eleven.
+ *
+ * The values are strings Mealie took from the page ("300 kcal"), so they are
+ * bounded like any other scraped text: a 300 kB `calories` used to make the
+ * whole recipe unanswerable, because nothing here was array-shaped enough for
+ * the budget to shrink.
+ */
 function nutrition(value: unknown): Record<string, unknown> | undefined {
-  const entries = Object.entries(rec(value)).filter(
-    ([, v]) => v !== null && v !== undefined && v !== ''
-  );
+  const entries = Object.entries(rec(value))
+    .map(([key, v]) => [
+      cleanText(key, 50),
+      typeof v === 'number' ? num(v) : cap(v, 100),
+    ])
+    .filter(([, v]) => v !== undefined);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
@@ -176,17 +259,17 @@ function nutrition(value: unknown): Record<string, unknown> | undefined {
 export function recipeSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
-    slug: str(object.slug),
+    id: ident(object.id),
+    slug: ident(object.slug),
     name: cap(object.name, NAME_MAX),
     description: cap(object.description, SUMMARY_DESCRIPTION_MAX),
     rating: num(object.rating),
     ...times(object),
     recipeServings: num(object.recipeServings),
-    tags: namedRefs(object.tags).map((t) => t.name),
-    categories: namedRefs(object.recipeCategory).map((c) => c.name),
-    lastMade: str(object.lastMade),
-    dateAdded: str(object.dateAdded),
+    tags: names(object.tags),
+    categories: names(object.recipeCategory),
+    lastMade: ident(object.lastMade),
+    dateAdded: ident(object.dateAdded),
   });
 }
 
@@ -207,15 +290,15 @@ export function recipeDetail(
   const object = rec(value);
   const settings = rec(object.settings);
   return defined({
-    id: str(object.id),
-    slug: str(object.slug),
+    id: ident(object.id),
+    slug: ident(object.slug),
     name: cap(object.name, NAME_MAX),
     description: cap(object.description, DESCRIPTION_MAX),
     imageUrl: imageUrl(baseUrl, object),
     rating: num(object.rating),
     ...times(object),
     recipeServings: num(object.recipeServings),
-    recipeYield: str(object.recipeYield),
+    recipeYield: cap(object.recipeYield, SHORT_MAX),
     recipeYieldQuantity: num(object.recipeYieldQuantity),
     categories: namedRefs(object.recipeCategory),
     tags: namedRefs(object.tags),
@@ -224,10 +307,10 @@ export function recipeDetail(
     recipeInstructions: arr(object.recipeInstructions).map(instruction),
     notes: arr(object.notes).map(note),
     nutrition: nutrition(object.nutrition),
-    orgURL: str(object.orgURL),
-    lastMade: str(object.lastMade),
-    dateAdded: str(object.dateAdded),
-    dateUpdated: str(object.dateUpdated),
+    orgURL: url(object.orgURL),
+    lastMade: ident(object.lastMade),
+    dateAdded: ident(object.dateAdded),
+    dateUpdated: ident(object.dateUpdated),
     // Surfaced because it is the one setting with a visibility consequence: a
     // public recipe is readable through the group's explore routes without a login.
     isPublic: bool(settings.public),
@@ -237,9 +320,9 @@ export function recipeDetail(
 export function organizerSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
-    slug: str(object.slug),
+    slug: ident(object.slug),
     // Tools carry this, tags and categories do not.
     onHand: bool(object.onHand),
   });
@@ -249,22 +332,24 @@ export function foodSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   const label = rec(object.label);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
     pluralName: cap(object.pluralName, NAME_MAX),
     description: cap(object.description, SUMMARY_DESCRIPTION_MAX),
-    label: str(label.name),
-    aliases: arr(object.aliases).map((a) => str(rec(a).name)),
+    label: cap(label.name, SHORT_MAX),
+    aliases: arr(object.aliases)
+      .map((a) => cap(rec(a).name, NAME_MAX))
+      .filter((name): name is string => name !== undefined),
   });
 }
 
 export function unitSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
     pluralName: cap(object.pluralName, NAME_MAX),
-    abbreviation: str(object.abbreviation),
+    abbreviation: cap(object.abbreviation, SHORT_MAX),
     useAbbreviation: bool(object.useAbbreviation),
     fraction: bool(object.fraction),
     description: cap(object.description, SUMMARY_DESCRIPTION_MAX),
@@ -275,14 +360,14 @@ export function mealplanEntry(value: unknown): Record<string, unknown> {
   const object = rec(value);
   const recipe = rec(object.recipe);
   return defined({
-    id: num(object.id) ?? str(object.id),
-    date: str(object.date),
-    entryType: str(object.entryType),
+    id: num(object.id) ?? ident(object.id),
+    date: ident(object.date),
+    entryType: cap(object.entryType, SHORT_MAX),
     // A plan entry is either a recipe reference or a free-text note, never both.
     title: cap(object.title, NAME_MAX),
     text: cap(object.text, DESCRIPTION_MAX),
-    recipeId: str(object.recipeId),
-    recipeSlug: str(recipe.slug),
+    recipeId: ident(object.recipeId),
+    recipeSlug: ident(recipe.slug),
     recipeName: cap(recipe.name, NAME_MAX),
   });
 }
@@ -290,7 +375,7 @@ export function mealplanEntry(value: unknown): Record<string, unknown> {
 export function shoppingListSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
     // Present on the detail response only.
     itemCount: Array.isArray(object.listItems)
@@ -299,11 +384,11 @@ export function shoppingListSummary(value: unknown): Record<string, unknown> {
     recipeReferences: arr(object.recipeReferences).map((r) => {
       const ref = rec(r);
       return defined({
-        recipeId: str(ref.recipeId),
+        recipeId: ident(ref.recipeId),
         quantity: num(ref.recipeQuantity),
       });
     }),
-    updatedAt: str(object.updatedAt),
+    updatedAt: ident(object.updatedAt),
   });
 }
 
@@ -313,14 +398,14 @@ export function shoppingListItem(value: unknown): Record<string, unknown> {
   const food = rec(object.food);
   const label = rec(object.label);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     display: cap(object.display ?? object.note, TEXT_MAX),
     checked: bool(object.checked),
     quantity: num(object.quantity),
-    unit: str(unit.name),
-    food: str(food.name),
+    unit: cap(unit.name, SHORT_MAX),
+    food: cap(food.name, SHORT_MAX),
     note: cap(object.note, TEXT_MAX),
-    label: str(label.name),
+    label: cap(label.name, SHORT_MAX),
     position: num(object.position),
     isFood: bool(object.isFood),
   });
@@ -329,9 +414,9 @@ export function shoppingListItem(value: unknown): Record<string, unknown> {
 export function cookbookSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
+    id: ident(object.id),
     name: cap(object.name, NAME_MAX),
-    slug: str(object.slug),
+    slug: ident(object.slug),
     description: cap(object.description, SUMMARY_DESCRIPTION_MAX),
     position: num(object.position),
     isPublic: bool(object.public),
@@ -343,43 +428,46 @@ export function commentSummary(value: unknown): Record<string, unknown> {
   const object = rec(value);
   const user = rec(object.user);
   return defined({
-    id: str(object.id),
-    recipeId: str(object.recipeId),
+    id: ident(object.id),
+    recipeId: ident(object.recipeId),
     text: cap(object.text, TEXT_MAX),
     // The username, not the whole user record with its email address.
-    author: str(user.username),
-    createdAt: str(object.createdAt),
+    author: cap(user.username, SHORT_MAX),
+    createdAt: ident(object.createdAt),
   });
 }
 
 export function timelineEvent(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
-    recipeId: str(object.recipeId),
+    id: ident(object.id),
+    recipeId: ident(object.recipeId),
     subject: cap(object.subject, NAME_MAX),
-    eventType: str(object.eventType),
+    eventType: cap(object.eventType, SHORT_MAX),
     eventMessage: cap(object.eventMessage, TEXT_MAX),
-    timestamp: str(object.timestamp),
+    timestamp: ident(object.timestamp),
   });
 }
 
 export function shareToken(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
-    id: str(object.id),
-    recipeId: str(object.recipeId),
-    expiresAt: str(object.expiresAt),
-    createdAt: str(object.createdAt),
+    id: ident(object.id),
+    recipeId: ident(object.recipeId),
+    expiresAt: ident(object.expiresAt),
+    createdAt: ident(object.createdAt),
   });
 }
 
-/** The public URL a share token resolves to. */
+/**
+ * The public URL a share token resolves to. Only for a UUID-shaped token id:
+ * the id is the instance's, and it lands in a URL the model may hand on.
+ */
 export function shareUrl(
   baseUrl: string | undefined,
   tokenId: string | undefined
 ): string | undefined {
-  return baseUrl && tokenId
+  return baseUrl && tokenId !== undefined && UUID_SHAPE.test(tokenId)
     ? `${baseUrl}/shared/recipes/${tokenId}`
     : undefined;
 }
@@ -388,7 +476,7 @@ export function suggestion(value: unknown): Record<string, unknown> {
   const object = rec(value);
   return defined({
     recipe: recipeSummary(object.recipe),
-    missingFoods: namedRefs(object.missingFoods).map((f) => f.name),
-    missingTools: namedRefs(object.missingTools).map((t) => t.name),
+    missingFoods: names(object.missingFoods),
+    missingTools: names(object.missingTools),
   });
 }

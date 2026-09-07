@@ -1,6 +1,7 @@
 import { assertPathSegment, query, type MealieApi } from './api.js';
 import { MealieApiError } from './api.js';
 import { ToolInputError } from './result.js';
+import { listFrom, rec } from './shape.js';
 
 export interface RecipeRef {
   id: string;
@@ -14,6 +15,11 @@ export interface RecipeRef {
  * Mealie v3.22.0), so one lookup covers either input. The tools need both
  * halves: CRUD and comments are addressed by slug, meal plans, shopping-list
  * references, ratings and timeline events by UUID.
+ *
+ * Both halves are validated, not merely typed. They are the instance's
+ * strings, and they go on into a path, a query-filter literal and the
+ * sentence a person is asked to approve — a `"` in the id would have broken
+ * out of the filter, and none of those places would have noticed.
  */
 export async function resolveRecipe(
   api: MealieApi,
@@ -22,18 +28,51 @@ export async function resolveRecipe(
   const data = await api.get(
     `/api/recipes/${assertPathSegment(ref, 'recipe reference')}`
   );
-  const record =
-    data !== null && typeof data === 'object'
-      ? (data as Record<string, unknown>)
-      : {};
-  const id = typeof record.id === 'string' ? record.id : undefined;
-  const slug = typeof record.slug === 'string' ? record.slug : undefined;
+  const record = rec(data);
+  const id =
+    typeof record.id === 'string' && UUID_SHAPE.test(record.id)
+      ? record.id
+      : undefined;
+  const slug =
+    typeof record.slug === 'string' &&
+    record.slug.length <= 255 &&
+    SLUG_SHAPE.test(record.slug)
+      ? record.slug
+      : undefined;
   if (id === undefined || slug === undefined) {
     throw new ToolInputError(
       `Mealie did not return a recognisable recipe for "${ref}".`
     );
   }
   return { id, slug };
+}
+
+/**
+ * How long one tool call may spend resolving organizer names.
+ *
+ * `search_recipes` resolves up to sixty names and `update_recipe` up to a
+ * hundred, one or two requests each, in sequence — and the fifteen-second
+ * timeout bounds each request, not the call. A slow instance turned one call
+ * into minutes. The budget is a wall clock checked before every request.
+ */
+export const LOOKUP_BUDGET_MS = 30_000;
+
+class LookupBudget {
+  private readonly startedAt = Date.now();
+  constructor(
+    private readonly total: number,
+    private readonly what: string
+  ) {}
+
+  /** Throws once the budget is spent, naming how far the call got. */
+  check(done: number): void {
+    if (Date.now() - this.startedAt < LOOKUP_BUDGET_MS) return;
+    throw new ToolInputError(
+      `stopped after ${done} of ${this.total} ${this.what} lookups within ` +
+        `${LOOKUP_BUDGET_MS / 1000} s: Mealie is answering slowly. Pass fewer ` +
+        'names, or use ids from list_organizers, which need no lookup.'
+    );
+  }
 }
 
 /** Where each kind of recipe organizer lives. */
@@ -87,6 +126,7 @@ export async function resolveOrganizerIds(
 ): Promise<string[]> {
   const path = ORGANIZER_PATHS[kind];
   const ids: string[] = [];
+  const budget = new LookupBudget(values.length, kind);
 
   for (const value of values) {
     const wanted = value.trim();
@@ -94,6 +134,7 @@ export async function resolveOrganizerIds(
       ids.push(wanted);
       continue;
     }
+    budget.check(ids.length);
 
     // Only a slug-shaped value goes into the path — a name like "Kid & Family"
     // is not a path segment, and building one out of caller text is how a
@@ -142,9 +183,9 @@ async function organizerBySlug(
   slug: string
 ): Promise<Record<string, unknown> | undefined> {
   try {
-    return (await api.get(
-      `${path}/slug/${assertPathSegment(slug, 'organizer slug')}`
-    )) as Record<string, unknown>;
+    return rec(
+      await api.get(`${path}/slug/${assertPathSegment(slug, 'organizer slug')}`)
+    );
   } catch (error) {
     if (error instanceof MealieApiError && SLUG_ROUTE_MISS.has(error.status)) {
       return undefined;
@@ -174,18 +215,18 @@ export async function resolveOrganizers(
 ): Promise<Record<string, unknown>[]> {
   const path = ORGANIZER_PATHS[kind];
   const resolved: Record<string, unknown>[] = [];
+  const budget = new LookupBudget(names.length, kind);
 
   for (const name of names) {
     const wanted = name.trim().toLowerCase();
+    budget.check(resolved.length);
     const found = await findOrganizer(api, path, wanted);
     if (found) {
       resolved.push(found);
       continue;
     }
     try {
-      resolved.push(
-        (await api.post(path, { name })) as Record<string, unknown>
-      );
+      resolved.push(rec(await api.post(path, { name })));
     } catch (error) {
       // A 409 means it exists after all — Mealie's slug collision rules are not
       // the same as a case-insensitive name comparison (accents, punctuation).
@@ -209,11 +250,8 @@ async function findOrganizer(
   const data = await api.get(
     `${path}${query({ search: wantedLowercase, perPage: 100 })}`
   );
-  const items = Array.isArray(data)
-    ? data
-    : (((data as Record<string, unknown>).items as unknown[]) ?? []);
-  return items.find((item) => {
-    const record = item as Record<string, unknown>;
+  return listFrom(data).find((item) => {
+    const record = rec(item);
     // Slug as well as name: the search is over names, but a caller who typed a
     // slug that has no `/slug/` hit should still land on it rather than be told
     // it does not exist.
@@ -248,11 +286,12 @@ export class CurrentUser {
 
   private async fetch(): Promise<string> {
     const data = await this.api.get('/api/users/self');
-    const record =
-      data !== null && typeof data === 'object'
-        ? (data as Record<string, unknown>)
-        : {};
-    const id = typeof record.id === 'string' ? record.id : undefined;
+    const record = rec(data);
+    // A UUID or nothing: it goes into a path.
+    const id =
+      typeof record.id === 'string' && UUID_SHAPE.test(record.id)
+        ? record.id
+        : undefined;
     if (id === undefined) {
       throw new ToolInputError(
         'Could not determine the current user from /api/users/self.'

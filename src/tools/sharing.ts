@@ -5,10 +5,16 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { query, type MealieApi } from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
+import { orderedResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { resolveRecipe } from '../lookup.js';
 import { errorResult, jsonResult, run, untrustedResult } from '../result.js';
-import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
+import {
+  confirmTokenParam,
+  isoTimestampParam,
+  recipeRefParam,
+  uuidParam,
+} from '../schema.js';
 import { listFrom, shareToken, shareUrl } from '../shape.js';
 
 export function registerSharingReadTools(
@@ -70,13 +76,7 @@ export function registerSharingWriteTools(
         'that token.',
       inputSchema: z.object({
         recipe: recipeRefParam,
-        expires_at: z
-          .string()
-          .trim()
-          .regex(
-            /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/,
-            'must be an ISO 8601 date or date-time'
-          )
+        expires_at: isoTimestampParam
           .optional()
           .describe(
             'When the link stops working. Omitted, it never expires — prefer ' +
@@ -93,7 +93,12 @@ export function registerSharingWriteTools(
         // Guarded like a destructive operation even though it destroys nothing:
         // this is the one tool that widens who can see the data, and unlike a
         // deletion the effect is invisible until someone uses the link.
-        const key = `create_share_token:${id}:${expires_at ?? 'never'}`;
+        // A tuple — the recipe and the expiry — keyed by position rather than
+        // joined by hand.
+        const key = orderedResourceKey('create_share_token', [
+          id,
+          expires_at ?? 'never',
+        ]);
         const outcome = await approval.requestApproval(
           server,
           mcp,
