@@ -133,10 +133,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // The token's shape, without the token: a value with a character a header
   // cannot carry is refused here, where the message can say so without
   // quoting it. Past this point the value is only ever used, never printed.
+  // Not even the length: CodeQL reads any value derived from the token as the
+  // token, and a length is not worth arguing about.
   if (token !== undefined && token !== '' && !TOKEN_SHAPE.test(token)) {
     console.error(
-      `mealie-mcp: MEALIE_API_TOKEN has an unexpected shape (${token.length} characters) — ` +
-        'it must be visible ASCII without spaces or line breaks. Refusing to start.'
+      'mealie-mcp: MEALIE_API_TOKEN has an unexpected shape — it must be ' +
+        'visible ASCII without spaces or line breaks. Refusing to start.'
     );
     process.exit(1);
   }
