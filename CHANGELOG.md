@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.4.0] - 2026-09-07
 
 ### Changed
 
@@ -49,7 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has, so this closes a hole that would only have opened on a first publish
   under a new name.
 
-[Unreleased]: https://github.com/ni-c/mealie-mcp/compare/v0.3.0...HEAD
+### Security
+
+- **mcp-approval 0.8.2.** A sealed dialog answer is single-use since 0.8.1: the same `requestState` presented again within its lifetime used to be accepted again, and with a resource key that is the same every time — a whole stream, a fixed set of targets — every replay landed. npm users on `^0.8.0` already had the fix; the Docker image is built from the lockfile and carried 0.8.0 until this release.
 
 ## [0.3.0] - 2026-09-03
 
@@ -394,6 +396,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
 
+[0.4.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.3.0
 [0.1.2]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.1
