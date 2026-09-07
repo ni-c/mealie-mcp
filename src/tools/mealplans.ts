@@ -240,7 +240,7 @@ export function registerMealplanWriteTools(
             mcp,
             confirmations,
             {
-              what: `replace the ${Object.keys(replacing).sort().join(' and ')} of meal plan entry ${entry_id}`,
+              what: `replace the ${Object.keys(replacing).toSorted().join(' and ')} of meal plan entry ${entry_id}`,
               consequence:
                 'Mealie keeps no history of a plan entry. What is written there ' +
                 'now is gone once this is saved.',

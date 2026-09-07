@@ -82,8 +82,8 @@ describe('the destructive line and the guard follow each other', () => {
     const destructive = tools
       .filter((tool) => tool.annotations?.destructiveHint === true)
       .map((tool) => tool.name)
-      .sort();
-    expect(destructive).toEqual(Object.keys(DESTRUCTIVE_CALLS).sort());
+      .toSorted();
+    expect(destructive).toEqual(Object.keys(DESTRUCTIVE_CALLS).toSorted());
   });
 
   it('writes nothing on the first call of any destructive tool', async () => {

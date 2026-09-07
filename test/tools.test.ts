@@ -145,7 +145,7 @@ describe('tool registration', () => {
         return properties?.untrusted === undefined;
       })
       .map((tool) => tool.name)
-      .sort();
+      .toSorted();
     // The ones whose answer is this server's own words: an id it was given, or
     // — for get_about — a version string and the permission flags of the
     // account it authenticates as.

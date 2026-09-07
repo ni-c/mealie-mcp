@@ -574,7 +574,7 @@ export function registerRecipeWriteTools(
             mcp,
             confirmations,
             {
-              what: `replace ${Object.keys(replacing).sort().join(', ')} on the recipe with id ${id}`,
+              what: `replace ${Object.keys(replacing).toSorted().join(', ')} on the recipe with id ${id}`,
               consequence:
                 'Mealie keeps no version history. The current text is gone once ' +
                 'this is written, and there is nowhere to read it back from.',

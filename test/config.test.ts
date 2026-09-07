@@ -84,14 +84,14 @@ describe('ELICITATION', () => {
 describe('loadConfig', () => {
   it('reads the full configuration', () => {
     silence();
-    const env = {
+    const processEnv = {
       MEALIE_URL: 'https://mealie.example.com',
       MEALIE_API_TOKEN: 'secret',
       MEALIE_ACCEPT_LANGUAGE: 'de-DE',
       MEALIE_READ_ONLY: 'true',
       MEALIE_INSECURE_TLS: 'true',
     } as NodeJS.ProcessEnv;
-    expect(loadConfig(env)).toEqual({
+    expect(loadConfig(processEnv)).toEqual({
       url: 'https://mealie.example.com',
       token: 'secret',
       acceptLanguage: 'de-DE',
@@ -152,13 +152,13 @@ describe('loadConfig', () => {
 
   it('removes the token from the environment', () => {
     silence();
-    const env = {
+    const processEnv = {
       MEALIE_URL: 'https://mealie.example.com',
       MEALIE_API_TOKEN: 'secret',
     } as NodeJS.ProcessEnv;
-    const config = loadConfig(env);
+    const config = loadConfig(processEnv);
     expect(config.token).toBe('secret');
-    expect(env.MEALIE_API_TOKEN).toBeUndefined();
+    expect(processEnv.MEALIE_API_TOKEN).toBeUndefined();
   });
 
   it('removes the token even when the URL is missing', () => {
@@ -166,11 +166,11 @@ describe('loadConfig', () => {
     // for a missing URL leaves the token in the environment for the process
     // lifetime, where any child process can read it out of /proc/<pid>/environ.
     silence();
-    const env = { MEALIE_API_TOKEN: 'secret' } as NodeJS.ProcessEnv;
-    const config = loadConfig(env);
+    const processEnv = { MEALIE_API_TOKEN: 'secret' } as NodeJS.ProcessEnv;
+    const config = loadConfig(processEnv);
     expect(config.url).toBeUndefined();
     expect(config.token).toBe('secret');
-    expect(env.MEALIE_API_TOKEN).toBeUndefined();
+    expect(processEnv.MEALIE_API_TOKEN).toBeUndefined();
   });
 
   it('starts without credentials and warns', () => {
