@@ -15,8 +15,12 @@ import { decodeEntities, imageUrlsIn } from '../src/tools/imports.js';
  */
 
 const CEILING = 2 * 1024 * 1024;
-/** Generous for CI; the scans take a few milliseconds on a workstation. */
-const LIMIT_MS = 500;
+/**
+ * Generous for CI; the scans take a few milliseconds on a workstation. The
+ * quadratic case this file exists for took 223 seconds — a limit of one
+ * second still separates the two by three orders of magnitude.
+ */
+const LIMIT_MS = 1000;
 
 function timed(fn: () => unknown): number {
   const started = performance.now();
@@ -80,12 +84,16 @@ describe('the text helpers are linear in their input', () => {
   });
 
   it('decodeEntities over digit runs and ampersand runs', () => {
+    // The decoder only ever sees an attribute value (≤ 2048 characters); a
+    // megabyte is five hundred times that, generous enough for a slow CI
+    // runner and still a clear signal if a pass ever turns quadratic.
+    const attribute = 1024 * 1024;
     for (const text of [
-      `&#${'0'.repeat(size)};`,
-      '&#'.repeat(size / 2),
-      '&'.repeat(size),
-      `&#x${'f'.repeat(size)}`,
-      '&amp'.repeat(size / 4),
+      `&#${'0'.repeat(attribute)};`,
+      '&#'.repeat(attribute / 2),
+      '&'.repeat(attribute),
+      `&#x${'f'.repeat(attribute)}`,
+      '&amp'.repeat(attribute / 4),
     ]) {
       expect(timed(() => decodeEntities(text))).toBeLessThan(LIMIT_MS);
     }
