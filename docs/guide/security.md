@@ -125,7 +125,38 @@ The real boundary is Mealie's own network egress.
 
 Oversized results drop whole items rather than cutting the JSON mid-string, and
 a response body is never read past 8 MB. Redirects are refused so the token
-cannot be resent to another host.
+cannot be resent to another host. The status of a response is decided before
+its body is read: an error body is cut at 64 KiB, so a proxy answering `401`
+with a login page of megabytes is reported as a `401`, not as a size.
+
+## What the instance writes, on its way to the model
+
+Every string that comes back from Mealie — a recipe name, a step, a comment, an
+error body, and the whole object in `get_recipe`'s `raw` mode — is cleaned
+before it is shown: control characters, the zero-width set, the BiDi overrides
+and the byte-order mark are removed, and every string is cut at a length that
+fits its field, with the cut announced in the value. Identifiers, dates and
+URLs are validated rather than cleaned, because they have to round-trip; the
+credentials in a stored source URL are redacted. Fields whose name ends like a
+credential (`password`, `secret`, `token`, `api_key`, `private_key`,
+`passphrase`) are replaced by `[redacted]` at any depth — Mealie's `extras` is
+whatever an integration stored there.
+
+The image scan of `import_recipe_from_html_or_json` reads the document the way
+Mealie's parsers read it: as JSON when it parses, as JSON text with escapes
+decoded, and as HTML with character references decoded, in the places extruct
+and recipe_scrapers read. An absolute address it cannot parse is refused rather
+than passed on, and so is a document naming more than 25 hosts or carrying more
+than 500 image references. The scan is one pass over the document.
+
+## Binding and freshness
+
+The server negotiates both protocol revisions. On `2026-07-28` the sealed
+dialog state travels through the client; `mcp-approval` seals it (binding) and,
+since 0.8.1, spends a nonce on the first answer (freshness), accepted or
+declined. The record of spent nonces is per process — a restart forgets it —
+and the state's own fifteen-minute lifetime bounds that window. The two-call
+token of the fallback path is single-use in the same way.
 
 ## Reporting a vulnerability
 
