@@ -1,4 +1,17 @@
 import { internalHostKind } from 'mcp-internal-hosts';
+import { quoted } from './text.js';
+
+/**
+ * What an API token may look like: visible ASCII, no whitespace. Mealie's
+ * tokens are JWTs, so the real shape is narrower — but this check is not about
+ * recognising a token, it is about refusing a value a header cannot carry.
+ * undici refuses one with a control character in it by quoting the whole value
+ * in its error, and that error used to reach the model.
+ */
+export const TOKEN_SHAPE = /^[!-~]{1,4096}$/;
+
+/** A list of language ranges, as `Accept-Language` carries them. */
+const ACCEPT_LANGUAGE_SHAPE = /^[A-Za-z0-9*,;=.\- ]{1,64}$/;
 
 export interface Config {
   /**
@@ -72,8 +85,11 @@ export function parseElicitation(raw: string | undefined): boolean {
   const value = raw?.trim().toLowerCase();
   if (value === undefined || value === '' || value === 'true') return true;
   if (value === 'false') return false;
+  // `quoted` rather than the raw value: this variable sits next to the token
+  // in every compose file, and a value that matches nothing is exactly what a
+  // secret pasted into the wrong line looks like.
   console.error(
-    `mealie-mcp: ELICITATION must be "true" or "false" — got "${raw}". ` +
+    `mealie-mcp: ELICITATION must be "true" or "false" — got ${quoted(raw ?? '')}. ` +
       'Refusing to start rather than guess.'
   );
   process.exit(1);
@@ -89,8 +105,10 @@ export function parseElicitation(raw: string | undefined): boolean {
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const url = env.MEALIE_URL;
-  const token = env.MEALIE_API_TOKEN;
-  const acceptLanguage = env.MEALIE_ACCEPT_LANGUAGE;
+  // Trimmed: a trailing newline from `$(cat token)` is the commonest way a
+  // token arrives broken, and it is not the operator's intent.
+  const token = env.MEALIE_API_TOKEN?.trim();
+  const acceptLanguage = env.MEALIE_ACCEPT_LANGUAGE?.trim();
   // `MEALIE_INSECURE_TLS` stays exact on purpose: it *weakens* the server, so
   // only the one spelling that unambiguously asks for it should do it.
   const insecureTls = env.MEALIE_INSECURE_TLS === 'true';
@@ -112,6 +130,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // above would leave the credential in the environment for whatever runs next.
   const elicitation = parseElicitation(env.ELICITATION);
 
+  // The token's shape, without the token: a value with a character a header
+  // cannot carry is refused here, where the message can say so without
+  // quoting it. Past this point the value is only ever used, never printed.
+  if (token !== undefined && token !== '' && !TOKEN_SHAPE.test(token)) {
+    console.error(
+      `mealie-mcp: MEALIE_API_TOKEN has an unexpected shape (${token.length} characters) — ` +
+        'it must be visible ASCII without spaces or line breaks. Refusing to start.'
+    );
+    process.exit(1);
+  }
+
+  let language: string | undefined;
+  if (acceptLanguage !== undefined && acceptLanguage !== '') {
+    if (ACCEPT_LANGUAGE_SHAPE.test(acceptLanguage)) {
+      language = acceptLanguage;
+    } else {
+      console.error(
+        `mealie-mcp: MEALIE_ACCEPT_LANGUAGE is not a language range (${acceptLanguage.length} characters); ` +
+          'ignoring it. Use a value like de-DE or en.'
+      );
+    }
+  }
+
   const missing = [!url && 'MEALIE_URL', !token && 'MEALIE_API_TOKEN'].filter(
     (v): v is string => Boolean(v)
   );
@@ -123,8 +164,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!url) {
     return {
       url: undefined,
-      token,
-      acceptLanguage,
+      token: token || undefined,
+      acceptLanguage: language,
       insecureTls,
       readOnly,
       elicitation,
@@ -143,8 +184,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     process.exit(1);
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    // Without the scheme: a 56-character hexadecimal key with a colon after it
+    // is a valid URL whose scheme is the key.
     console.error(
-      `mealie-mcp: MEALIE_URL must use http:// or https:// (got ${parsed.protocol})`
+      'mealie-mcp: MEALIE_URL must use http:// or https:// (got another scheme)'
     );
     process.exit(1);
   }
@@ -171,10 +214,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
+  // What was checked is what is used: the parsed origin and path, not the
+  // string that came in. `URL` strips a stray tab or newline and lower-cases
+  // the host; the raw string would have glued those in front of every request.
+  let pathname = parsed.pathname;
+  while (pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+  const stored = `${parsed.origin}${pathname}`;
+  if (stored !== url) {
+    console.error(`mealie-mcp: MEALIE_URL normalised to ${stored}`);
+  }
+
   return {
-    url: url.replace(/\/+$/, ''),
-    token,
-    acceptLanguage,
+    url: stored,
+    token: token || undefined,
+    acceptLanguage: language,
     insecureTls,
     readOnly,
     elicitation,

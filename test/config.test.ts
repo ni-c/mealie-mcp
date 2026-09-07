@@ -315,3 +315,168 @@ describe('missingConfigMessage', () => {
     expect(message).toContain('MEALIE_READ_ONLY');
   });
 });
+
+describe('MEALIE_API_TOKEN has a shape, and its shape is all that is said about it', () => {
+  // undici refuses a header value with a control character in it by quoting
+  // the whole value in its error — for the Authorization header, the whole
+  // value is the token — and that error used to reach the model. The shape is
+  // checked here, where the message can say so without the value.
+  function exitsOn(token: string): string[] {
+    const log = silence();
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exited');
+    }) as never);
+    expect(() =>
+      loadConfig(
+        env({
+          MEALIE_URL: 'https://mealie.example.com',
+          MEALIE_API_TOKEN: token,
+        })
+      )
+    ).toThrow('exited');
+    const lines = log.mock.calls.map(([m]) => String(m));
+    vi.restoreAllMocks();
+    return lines;
+  }
+
+  it('refuses a token with a line break, a NUL or a space inside', () => {
+    const secret = `eyJ${'a'.repeat(60)}`;
+    for (const token of [
+      `${secret}\n${secret}`,
+      `${secret}\r${secret}`,
+      `${secret}${String.fromCharCode(0)}`,
+      `${secret} ${secret}`,
+      `${secret}${String.fromCodePoint(0x202e)}`,
+    ]) {
+      const lines = exitsOn(token);
+      expect(lines.some((l) => l.includes('MEALIE_API_TOKEN'))).toBe(true);
+      expect(lines.some((l) => l.includes('unexpected shape'))).toBe(true);
+      for (const line of lines) expect(line).not.toContain(secret);
+    }
+  });
+
+  it('trims the whitespace a shell leaves around a token', () => {
+    silence();
+    const config = loadConfig(
+      env({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: '  tok.en_x\n',
+      })
+    );
+    expect(config.token).toBe('tok.en_x');
+  });
+
+  it('keeps an ordinary JWT-shaped token', () => {
+    silence();
+    const jwt = `eyJ${'a'.repeat(100)}.${'b'.repeat(200)}.${'c'.repeat(43)}`;
+    expect(
+      loadConfig(
+        env({ MEALIE_URL: 'https://mealie.example.com', MEALIE_API_TOKEN: jwt })
+      ).token
+    ).toBe(jwt);
+  });
+});
+
+describe('MEALIE_ACCEPT_LANGUAGE is a language range or nothing', () => {
+  it('drops a value a header cannot carry, describing it by length only', () => {
+    const log = silence();
+    const config = loadConfig(
+      env({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: 't',
+        MEALIE_ACCEPT_LANGUAGE: `de-DE\r\nX-Injected: ${'s'.repeat(30)}`,
+      })
+    );
+    expect(config.acceptLanguage).toBeUndefined();
+    const line = log.mock.calls
+      .map(([m]) => String(m))
+      .find((l) => l.includes('MEALIE_ACCEPT_LANGUAGE'));
+    expect(line).toBeDefined();
+    expect(line).not.toContain('Injected');
+  });
+
+  it('keeps a list of ranges with weights', () => {
+    silence();
+    expect(
+      loadConfig(
+        env({
+          MEALIE_URL: 'https://mealie.example.com',
+          MEALIE_API_TOKEN: 't',
+          MEALIE_ACCEPT_LANGUAGE: 'de-DE, de;q=0.9, en;q=0.5',
+        })
+      ).acceptLanguage
+    ).toBe('de-DE, de;q=0.9, en;q=0.5');
+  });
+});
+
+describe('diagnostics do not echo what sits next to the token', () => {
+  it('describes a long ELICITATION value by its length', () => {
+    const secret = `eyJ${'k'.repeat(80)}`;
+    const error = silence();
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    expect(() => loadConfig(env({ ...complete, ELICITATION: secret }))).toThrow(
+      'exit'
+    );
+    const message = String(error.mock.calls[0]?.[0] ?? '');
+    expect(message).toContain(`a value of ${secret.length} characters`);
+    expect(message).not.toContain(secret);
+  });
+
+  it('does not print the scheme of a URL that uses the wrong one', () => {
+    // A 56-character hexadecimal key with a colon after it is a valid URL
+    // whose scheme is the key.
+    const key = 'a'.repeat(56);
+    const log = silence();
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exited');
+    }) as never);
+    expect(() =>
+      loadConfig(env({ MEALIE_URL: `${key}:rest`, MEALIE_API_TOKEN: 't' }))
+    ).toThrow('exited');
+    for (const [line] of log.mock.calls)
+      expect(String(line)).not.toContain(key);
+  });
+});
+
+describe('MEALIE_URL is stored as it was checked', () => {
+  it('keeps the parsed origin and path, not the raw string', () => {
+    const log = silence();
+    const config = loadConfig(
+      env({
+        MEALIE_URL: 'https://Mealie.Example.com:443/mealie/',
+        MEALIE_API_TOKEN: 't',
+      })
+    );
+    expect(config.url).toBe('https://mealie.example.com/mealie');
+    expect(
+      log.mock.calls.some(([m]) =>
+        String(m).includes('normalised to https://mealie.example.com/mealie')
+      )
+    ).toBe(true);
+  });
+
+  it('says nothing when the value was already canonical', () => {
+    const log = silence();
+    loadConfig(
+      env({ MEALIE_URL: 'https://mealie.example.com', MEALIE_API_TOKEN: 't' })
+    );
+    expect(log.mock.calls.some(([m]) => String(m).includes('normalised'))).toBe(
+      false
+    );
+  });
+
+  it('is linear in a run of trailing slashes', () => {
+    silence();
+    const started = performance.now();
+    const config = loadConfig(
+      env({
+        MEALIE_URL: `https://mealie.example.com${'/'.repeat(100_000)}`,
+        MEALIE_API_TOKEN: 't',
+      })
+    );
+    expect(config.url).toBe('https://mealie.example.com');
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});

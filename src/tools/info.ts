@@ -5,6 +5,8 @@ import { plain } from '../output-schema.js';
 import type { MealieApi } from '../api.js';
 import { READ_ONLY } from './annotations.js';
 import { jsonResult, run } from '../result.js';
+import { rec } from '../shape.js';
+import { cleanText } from '../text.js';
 
 export function registerInfoTools(server: McpServer, api: MealieApi): void {
   server.registerTool(
@@ -34,33 +36,33 @@ export function registerInfoTools(server: McpServer, api: MealieApi): void {
         if (about.status === 'rejected' && self.status === 'rejected') {
           throw about.reason;
         }
-        const app =
-          about.status === 'fulfilled' ? record(about.value) : undefined;
-        const user =
-          self.status === 'fulfilled' ? record(self.value) : undefined;
-        // Not passed through untrustedResult: every field below is written by the
-        // instance operator or by Mealie itself, and the model needs the version
-        // and the permission flags as facts it can act on.
+        const app = about.status === 'fulfilled' ? rec(about.value) : undefined;
+        const user = self.status === 'fulfilled' ? rec(self.value) : undefined;
+        // Not passed through untrustedResult: the flags are facts the model
+        // needs to act on. The strings beside them are still the instance's
+        // — a version, two slugs, a username, the group's name — so they are
+        // bounded and cleaned, and only scalars travel: `group` used to be
+        // the whole group object with whatever a release puts in it.
         return jsonResult({
           ...(app
             ? {
-                version: app.version,
-                allowSignup: app.allowSignup,
-                defaultGroupSlug: app.defaultGroupSlug,
-                defaultHouseholdSlug: app.defaultHouseholdSlug,
-                enableOidc: app.enableOidc,
+                version: short(app.version),
+                allowSignup: flag(app.allowSignup),
+                defaultGroupSlug: short(app.defaultGroupSlug),
+                defaultHouseholdSlug: short(app.defaultHouseholdSlug),
+                enableOidc: flag(app.enableOidc),
               }
             : { instance_error: reasonMessage(about) }),
           token: user
             ? {
-                username: user.username,
-                admin: user.admin,
-                group: user.group,
-                household: user.household,
+                username: short(user.username),
+                admin: flag(user.admin),
+                group: short(user.group),
+                household: short(user.household),
                 // The three flags that gate the write tools in practice.
-                canOrganize: user.canOrganize,
-                canManage: user.canManage,
-                canInvite: user.canInvite,
+                canOrganize: flag(user.canOrganize),
+                canManage: flag(user.canManage),
+                canInvite: flag(user.canInvite),
               }
             : { error: reasonMessage(self) },
         });
@@ -68,16 +70,22 @@ export function registerInfoTools(server: McpServer, api: MealieApi): void {
   );
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : {};
+/** A short display string of the instance's, or nothing. */
+function short(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return typeof value === 'string' ? cleanText(value, 200) : undefined;
+}
+
+function flag(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 /** Error text of a rejected half — MealieApiError messages carry no body. */
 function reasonMessage(settled: PromiseSettledResult<unknown>): string {
   if (settled.status === 'fulfilled') return '';
-  return settled.reason instanceof Error
-    ? settled.reason.message
-    : String(settled.reason);
+  const message =
+    settled.reason instanceof Error
+      ? settled.reason.message
+      : String(settled.reason);
+  return cleanText(message, 300);
 }

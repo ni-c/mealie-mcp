@@ -13,7 +13,12 @@ import {
   ToolInputError,
   untrustedResult,
 } from '../result.js';
-import { confirmTokenParam, recipeRefParam, uuidParam } from '../schema.js';
+import {
+  confirmTokenParam,
+  isoTimestampParam,
+  recipeRefParam,
+  uuidParam,
+} from '../schema.js';
 import { commentSummary, timelineEvent } from '../shape.js';
 
 export function registerEngagementWriteTools(
@@ -158,13 +163,7 @@ export function registerEngagementWriteTools(
           .max(255)
           .describe('Short headline, e.g. "Cooked it"'),
         message: z.string().max(10_000).optional().describe('The note itself'),
-        timestamp: z
-          .string()
-          .trim()
-          .regex(
-            /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/,
-            'must be an ISO 8601 date or date-time'
-          )
+        timestamp: isoTimestampParam
           .optional()
           .describe('When it happened; defaults to now'),
       }),

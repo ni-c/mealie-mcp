@@ -462,14 +462,23 @@ describe('timelineEvent and shareToken', () => {
 });
 
 describe('shareUrl', () => {
+  const TOKEN = '7d3a1b2c-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+
   it('builds the public address', () => {
-    expect(shareUrl('https://mealie.example.com', 'abc')).toBe(
-      'https://mealie.example.com/shared/recipes/abc'
+    expect(shareUrl('https://mealie.example.com', TOKEN)).toBe(
+      `https://mealie.example.com/shared/recipes/${TOKEN}`
     );
   });
 
+  it('builds nothing out of a token id that is not a UUID', () => {
+    // The id is the instance's and lands in a URL the model may hand on.
+    for (const bad of ['abc', '../admin', `${TOKEN}?x=1`, `${TOKEN}#`]) {
+      expect(shareUrl('https://mealie.example.com', bad), bad).toBeUndefined();
+    }
+  });
+
   it('is undefined without a base URL or a token', () => {
-    expect(shareUrl(undefined, 'abc')).toBeUndefined();
+    expect(shareUrl(undefined, TOKEN)).toBeUndefined();
     expect(shareUrl('https://x', undefined)).toBeUndefined();
   });
 });
@@ -483,5 +492,50 @@ describe('suggestion', () => {
         missingTools: [],
       })
     ).toMatchObject({ missingFoods: ['Honey'], missingTools: [] });
+  });
+});
+
+describe('what the instance wrote is bounded and cleaned', () => {
+  const ESC = String.fromCharCode(27);
+
+  it('redacts credentials in the source URL and strips controls from text', () => {
+    const detail = recipeDetail({
+      ...RECIPE,
+      orgURL: 'https://user:pass@blog.example/recipe',
+      name: `Quark${ESC}[2J Bowl`,
+      totalTime: 'x'.repeat(500),
+      nutrition: {
+        calories: 'x'.repeat(5000),
+        sodiumContent: null,
+        fatContent: 3,
+      },
+    });
+    expect(detail.orgURL).toBe('https://***@blog.example/recipe');
+    expect(detail.name).toBe('Quark[2J Bowl');
+    expect(String(detail.totalTime)).toContain('(truncated at 200 characters)');
+    const nutrition = detail.nutrition as Record<string, unknown>;
+    expect(String(nutrition.calories)).toContain(
+      '(truncated at 100 characters)'
+    );
+    expect(nutrition.fatContent).toBe(3);
+    expect('sodiumContent' in nutrition).toBe(false);
+  });
+
+  it('drops an identifier that is not shaped like one', () => {
+    const summary = recipeSummary({
+      ...RECIPE,
+      slug: `quark${ESC}bowl`,
+      dateAdded: 'x'.repeat(600),
+    });
+    expect(summary.slug).toBeUndefined();
+    expect(summary.dateAdded).toBeUndefined();
+  });
+
+  it('leaves no hole in a list of names', () => {
+    const summary = recipeSummary({
+      ...RECIPE,
+      tags: [{ id: 't' }, { name: 'keto' }, null, 'x'],
+    });
+    expect(summary.tags).toEqual(['keto']);
   });
 });

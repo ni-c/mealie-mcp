@@ -13,6 +13,7 @@ import {
 import {
   listFrom,
   paginationOf,
+  rec,
   shoppingListItem,
   shoppingListSummary,
 } from '../shape.js';
@@ -81,7 +82,7 @@ export function registerShoppingReadTools(
     async ({ list_id, include_checked }) =>
       run(async () => {
         const data = await api.get(`/api/households/shopping/lists/${list_id}`);
-        const record = data as Record<string, unknown>;
+        const record = rec(data);
         const items = listFrom(record.listItems).map(shoppingListItem);
         const visible =
           include_checked === false
@@ -273,7 +274,9 @@ export function registerShoppingWriteTools(
           // confirmation for two items cannot execute against three; the note
           // is fingerprinted alongside it, so it cannot be turned onto
           // different text for the same items.
-          const key = `${setResourceKey('update_shopping_list_items', item_ids)}:${contentFingerprint({ note })}`;
+          // The list is in the key as well as in the sentence: what the person
+          // reads is what the token is bound to.
+          const key = `${setResourceKey(`update_shopping_list_items:${list_id}`, item_ids)}:${contentFingerprint({ note })}`;
           const outcome = await approval.requestApproval(
             server,
             mcp,
@@ -309,12 +312,12 @@ export function registerShoppingWriteTools(
         // silently reset quantity to 1, clear the note and untick the item. The
         // current state is therefore read first — one request for the whole list,
         // rather than one per item — and the changes are merged onto it.
-        const list = (await api.get(
-          `/api/households/shopping/lists/${list_id}`
-        )) as Record<string, unknown>;
+        const list = rec(
+          await api.get(`/api/households/shopping/lists/${list_id}`)
+        );
         const byId = new Map(
           listFrom(list.listItems).map((item) => {
-            const record = item as Record<string, unknown>;
+            const record = rec(item);
             return [String(record.id), record];
           })
         );

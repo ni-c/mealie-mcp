@@ -11,6 +11,7 @@ import {
 
 import { query, type MealieApi } from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
+import { orderedResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import { errorResult, run, untrustedResult } from '../result.js';
 import { foodSummary, listFrom, paginationOf, unitSummary } from '../shape.js';
@@ -248,7 +249,7 @@ function registerMerge(
     async ({ from_id, to_id, confirm_token }, mcp) =>
       run(async () => {
         // Not setResourceKey's sorted fingerprint: the order IS the meaning here.
-        const key = `merge_${plural}:${from_id}->${to_id}`;
+        const key = orderedResourceKey(`merge_${plural}`, [from_id, to_id]);
         const outcome = await approval.requestApproval(
           server,
           mcp,

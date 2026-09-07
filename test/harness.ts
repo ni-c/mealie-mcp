@@ -99,6 +99,11 @@ export async function connect(
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
+  // Listing once is what switches the client-side output-schema check on:
+  // the SDK validates `structuredContent` against the schema it has cached
+  // from `tools/list`, and without this call no test ran that check on a
+  // single success path.
+  await client.listTools();
   return Object.assign(client, { prompts });
 }
 

@@ -8,6 +8,7 @@ import type { Config } from '../config.js';
 import { run, ToolInputError, untrustedResult } from '../result.js';
 import { assertFetchableUrl, httpUrl } from '../schema.js';
 import { recipeDetail } from '../shape.js';
+import { cleanText } from '../text.js';
 
 /**
  * Cap on an inline HTML or image payload.
@@ -208,80 +209,383 @@ export function registerImportTools(
 }
 
 /**
- * How many distinct hosts an inline document may point at before this stops
- * looking. Each one costs a name resolution, and a recipe page that names more
- * than a handful of image hosts is not a recipe page.
+ * How many distinct hosts an inline document may point at. Each one costs a
+ * name resolution, and a recipe page that names more than a handful of image
+ * hosts is not a recipe page. The 26th host is a refusal, not a silent skip:
+ * an address the scan did not check is an address Mealie fetches unchecked.
  */
 const MAX_IMAGE_HOSTS = 25;
 
-/** The length of the value region scanned after an `image:` key. */
-const IMAGE_VALUE_WINDOW = 4096;
+/**
+ * How many image references the scan reads before it refuses the document.
+ *
+ * This is the bound on the work a document can buy. The scan itself is one
+ * pass — every character is visited a constant number of times — but each
+ * reference costs a decode and a URL parse, and a document that is nothing but
+ * `"image":[` two hundred thousand times over is not a recipe. It used to cost
+ * 223 seconds on the thread that serves every request.
+ */
+const MAX_IMAGE_CANDIDATES = 500;
+
+/** The longest tag the HTML scan reads before giving up on finding its `>`. */
+const MAX_TAG_LENGTH = 2000;
+
+/** The schema.org keys whose value Mealie reads an image address out of. */
+const IMAGE_KEYS = new Set(['image', 'thumbnailurl', 'contenturl']);
 
 /**
  * Absolute http(s) addresses in `document` that Mealie may fetch as an image.
  *
- * Deliberately not a parser. The argument is "HTML or JSON", in practice often
- * a fragment of one pasted into the other, and a parser that rejects what it
- * cannot read would refuse documents Mealie imports happily. This scans, and
- * what it finds is checked; what it misses is what the tool description warns
- * about.
+ * The document is "HTML or JSON", in practice often a fragment of one pasted
+ * into the other, so it is read three ways and the union is checked:
+ *
+ *  - As JSON, when it parses: the object is walked and every string under an
+ *    `image`, `thumbnailUrl` or `contentUrl` key is taken, at any depth. This
+ *    is the reading that cannot be fooled by how a key is spelled — Mealie's
+ *    parser turns `"image"` into `image`, and so does this one.
+ *  - As JSON text, always: string literals are read one after another with
+ *    their escapes decoded, so `"http:\/\/…"` — which PHP's `json_encode`
+ *    writes by default — is the address it decodes to, not the `http:` a
+ *    reader that stops at the backslash would see. The keys of JSON-LD blocks
+ *    inside HTML are found this way too.
+ *  - As HTML: `<img src>`, `<meta>` with `og:image`, `twitter:image` or
+ *    `itemprop="image"`, and `<link>` with `rel="image_src"` or
+ *    `itemprop="image"` — the places extruct and recipe_scrapers read for
+ *    Mealie — with character references decoded the way an HTML parser decodes
+ *    them, every digit of `&#0000000049;` included.
  *
  * Only absolute `http:`/`https:` values are returned. A relative `src` is not
- * something Mealie can resolve out of a document with no base, and a
- * `data:` image — which is common — would otherwise be refused by
- * `assertFetchableUrl` for its scheme and turn a working import into an error.
+ * something Mealie can resolve out of a document with no base, and a `data:`
+ * image — which is common — would otherwise be refused by `assertFetchableUrl`
+ * for its scheme and turn a working import into an error. An absolute address
+ * that names a scheme and still does not parse is refused rather than ignored:
+ * "cannot parse" is not "harmless" when the next parser is somebody else's.
  *
  * One address per host: the check is about which host is contacted, and a page
  * with forty images on one CDN should cost one lookup rather than forty.
+ *
+ * Throws `ToolInputError` when the document points at more hosts or carries
+ * more references than a recipe page does, or names an address that cannot be
+ * parsed — every one of those is a document this server will not hand on.
  */
 export function imageUrlsIn(document: string): string[] {
-  const found = new Map<string, string>();
+  const scan = new ImageScan();
+  const trimmed = document.trimStart();
+  const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
 
-  const consider = (raw: string | undefined): void => {
-    if (raw === undefined || found.size >= MAX_IMAGE_HOSTS) return;
+  if (looksLikeJson) {
+    let parsed: unknown;
+    let ok = false;
+    try {
+      parsed = JSON.parse(document) as unknown;
+      ok = true;
+    } catch {
+      // Not JSON to this parser. Python's accepts `NaN` and `Infinity` where
+      // this one does not, so the text reading below still applies.
+    }
+    if (ok) {
+      scan.walkJson(parsed);
+      return scan.urls();
+    }
+  }
+
+  scan.scanJsonText(document);
+  if (!looksLikeJson) {
+    scan.scanScripts(document);
+    scan.scanTags(document);
+  }
+  return scan.urls();
+}
+
+class ImageScan {
+  private readonly found = new Map<string, string>();
+  private candidates = 0;
+
+  urls(): string[] {
+    return [...this.found.values()];
+  }
+
+  /** One image reference read; the document is refused past the ceiling. */
+  private count(): void {
+    this.candidates += 1;
+    if (this.candidates > MAX_IMAGE_CANDIDATES) {
+      throw new ToolInputError(
+        `the document carries more than ${MAX_IMAGE_CANDIDATES} image references. ` +
+          'A recipe page does not, and every reference is an address Mealie ' +
+          'may fetch — pass a document that contains the recipe, not the site.'
+      );
+    }
+  }
+
+  /**
+   * One decoded value that may be an address. Relative values and non-http
+   * schemes are left alone; an absolute value that does not parse is refused.
+   */
+  private consider(raw: string): void {
+    this.count();
+    const value = raw.trim();
+    const absolute =
+      /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith('//');
+    if (!absolute) return;
     let parsed: URL;
     try {
-      parsed = new URL(raw.trim());
+      parsed = new URL(value.startsWith('//') ? `https:${value}` : value);
     } catch {
-      return;
+      throw new ToolInputError(
+        `the document names an address this server cannot parse (${cleanText(value, 80)}). ` +
+          'Mealie would read it its own way, so it is refused rather than passed on.'
+      );
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
-    if (!found.has(parsed.hostname)) found.set(parsed.hostname, parsed.href);
-  };
+    if (this.found.has(parsed.hostname)) return;
+    if (this.found.size >= MAX_IMAGE_HOSTS) {
+      throw new ToolInputError(
+        `the document points at more than ${MAX_IMAGE_HOSTS} different hosts. ` +
+          'A recipe page does not; pass a document that contains the recipe, not the site.'
+      );
+    }
+    this.found.set(parsed.hostname, parsed.href);
+  }
 
-  // schema.org, in every shape it takes: a string, an array of strings, or an
-  // ImageObject whose `url` carries the address.
-  const keys = /"(?:image|thumbnailUrl|contentUrl)"\s*:\s*/gi;
-  for (const key of document.matchAll(keys)) {
-    const window = document.slice(
-      key.index + key[0].length,
-      key.index + key[0].length + IMAGE_VALUE_WINDOW
-    );
-    if (window.startsWith('"')) {
-      consider(/^"([^"\\]*)"/.exec(window)?.[1]);
+  /** Every string anywhere under an image key of a parsed JSON value. */
+  walkJson(root: unknown): void {
+    // An explicit queue rather than recursion: the parser accepts nesting far
+    // deeper than the call stack would. Breadth-first, so the addresses come
+    // out in document order.
+    const queue: { value: unknown; inImage: boolean }[] = [
+      { value: root, inImage: false },
+    ];
+    for (let head = 0; head < queue.length; head += 1) {
+      const { value, inImage } = queue[head]!;
+      if (typeof value === 'string') {
+        if (inImage) this.consider(value);
+        continue;
+      }
+      if (value === null || typeof value !== 'object') continue;
+      if (Array.isArray(value)) {
+        for (const entry of value) queue.push({ value: entry, inImage });
+        continue;
+      }
+      for (const [key, entry] of Object.entries(
+        value as Record<string, unknown>
+      )) {
+        queue.push({
+          value: entry,
+          inImage: inImage || IMAGE_KEYS.has(key.toLowerCase()),
+        });
+      }
+    }
+  }
+
+  /**
+   * Reads `text` as a sequence of JSON string literals and takes the value
+   * region after every image key. Each character is visited once: the cursor
+   * only ever moves forward, past whatever was just read.
+   */
+  scanJsonText(text: string): void {
+    let cursor = 0;
+    for (;;) {
+      const open = text.indexOf('"', cursor);
+      if (open === -1) return;
+      const literal = readLiteral(text, open);
+      cursor = literal.end;
+      if (!IMAGE_KEYS.has(literal.value.toLowerCase())) continue;
+      const colon = skipWhitespace(text, cursor);
+      if (text[colon] !== ':') continue;
+      cursor = this.readImageValue(text, skipWhitespace(text, colon + 1));
+    }
+  }
+
+  /**
+   * The value after an image key: a string, or every string inside the array
+   * or object that follows, up to its matching close. Returns where reading
+   * stopped, so the caller continues from there.
+   */
+  private readImageValue(text: string, start: number): number {
+    const first = text[start];
+    if (first === '"') {
+      const literal = readLiteral(text, start);
+      this.consider(literal.value);
+      return literal.end;
+    }
+    if (first !== '[' && first !== '{') return start;
+    let depth = 0;
+    let cursor = start;
+    while (cursor < text.length) {
+      const char = text[cursor];
+      if (char === '"') {
+        const literal = readLiteral(text, cursor);
+        this.consider(literal.value);
+        cursor = literal.end;
+        continue;
+      }
+      if (char === '[' || char === '{') depth += 1;
+      if (char === ']' || char === '}') {
+        depth -= 1;
+        if (depth === 0) return cursor + 1;
+      }
+      cursor += 1;
+    }
+    return cursor;
+  }
+
+  /** JSON-LD blocks inside HTML, read as JSON on their own. */
+  scanScripts(html: string): void {
+    const opener = /<script\b/gi;
+    for (;;) {
+      const match = opener.exec(html);
+      if (match === null) return;
+      const tagEnd = tagEndOf(html, match.index);
+      const tag = html.slice(match.index, tagEnd);
+      const close = html.indexOf('</script', tagEnd);
+      const bodyEnd = close === -1 ? html.length : close;
+      opener.lastIndex = bodyEnd;
+      if (!/ld\+json/i.test(tag)) continue;
+      const body = html.slice(tagEnd, bodyEnd);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body) as unknown;
+      } catch {
+        this.scanJsonText(body);
+        continue;
+      }
+      this.walkJson(parsed);
+    }
+  }
+
+  /** `<img>`, `<meta>` and `<link>` tags, each read once and skipped past. */
+  scanTags(html: string): void {
+    const opener = /<(img|meta|link)\b/gi;
+    for (;;) {
+      const match = opener.exec(html);
+      if (match === null) return;
+      const end = tagEndOf(html, match.index);
+      opener.lastIndex = end;
+      const tag = html.slice(match.index, end);
+      const kind = match[1]!.toLowerCase();
+      let value: string | undefined;
+      if (kind === 'img') {
+        value = attribute(tag, 'src');
+      } else if (kind === 'meta') {
+        if (!/og:image|twitter:image|itemprop\s*=\s*["']?image\b/i.test(tag))
+          continue;
+        value = attribute(tag, 'content');
+      } else {
+        if (
+          !/rel\s*=\s*["']?image_src\b|itemprop\s*=\s*["']?image\b/i.test(tag)
+        )
+          continue;
+        value = attribute(tag, 'href');
+      }
+      if (value !== undefined) this.consider(decodeEntities(value));
+    }
+  }
+}
+
+/** Where a tag that opens at `start` ends: after its `>`, or after the cap. */
+function tagEndOf(html: string, start: number): number {
+  const close = html.indexOf('>', start);
+  const limit = start + MAX_TAG_LENGTH;
+  return close === -1 || close >= limit
+    ? Math.min(limit, html.length)
+    : close + 1;
+}
+
+/** The value of `name="…"`, `name='…'` or `name=bare` inside one tag. */
+function attribute(tag: string, name: string): string | undefined {
+  const pattern = new RegExp(
+    `\\b${name}\\s*=\\s*(?:"([^"]{0,2048})"|'([^']{0,2048})'|([^\\s"'>]{1,2048}))`,
+    'i'
+  );
+  const match = pattern.exec(tag);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function skipWhitespace(text: string, from: number): number {
+  let cursor = from;
+  while (cursor < text.length && /\s/.test(text[cursor]!)) cursor += 1;
+  return cursor;
+}
+
+/**
+ * The string literal opening at `text[open] === '"'`, decoded.
+ *
+ * Escapes are followed rather than treated as terminators, and the raw body
+ * is handed to `JSON.parse` so every escape means what it means to a JSON
+ * parser. A body the parser refuses — a raw control character, a lone
+ * surrogate escape — is used as written, which is what a lenient reader on the
+ * other side would see too. `end` is the index after the closing quote, or
+ * the end of the text when the literal never closes.
+ */
+function readLiteral(
+  text: string,
+  open: number
+): { value: string; end: number } {
+  let cursor = open + 1;
+  while (cursor < text.length) {
+    const char = text[cursor];
+    if (char === '\\') {
+      cursor += 2;
       continue;
     }
-    // An array or an object: take the quoted strings out of the region up to
-    // its close, which over-collects a little and under-collects nothing.
-    const end = window.search(/[\]}]/);
-    for (const literal of (end === -1 ? window : window.slice(0, end)).matchAll(
-      /"([^"\\]*)"/g
-    )) {
-      consider(literal[1]);
+    if (char === '"') break;
+    cursor += 1;
+  }
+  const raw = text.slice(open + 1, Math.min(cursor, text.length));
+  const end = Math.min(cursor + 1, text.length);
+  if (!raw.includes('\\')) return { value: raw, end };
+  try {
+    return { value: JSON.parse(`"${raw}"`) as string, end };
+  } catch {
+    return { value: raw, end };
+  }
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/**
+ * Decodes character references the way an HTML tokenizer does: every digit of
+ * a numeric reference, with or without the semicolon, in one alternation — so
+ * `&#x26;#104;` is decoded once, not twice. Zero, a surrogate and anything past
+ * U+10FFFF become U+FFFD, a character rather than nothing: `''` would make
+ * `&#0;` an invisible separator.
+ */
+export function decodeEntities(text: string): string {
+  if (!text.includes('&')) return text;
+  return text.replace(
+    /&(?:#([0-9]+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z]+));?/g,
+    (whole, decimal: string | undefined, hex: string | undefined, named) => {
+      if (named !== undefined) {
+        const known = Object.hasOwn(NAMED_ENTITIES, named as string)
+          ? NAMED_ENTITIES[named as string]
+          : undefined;
+        return known ?? whole;
+      }
+      const digits = (decimal ?? hex ?? '').replace(/^0+/, '');
+      // Past twenty digits the value is out of range whatever it says, and
+      // `parseInt` on a longer run would only find that out more slowly.
+      const point =
+        digits.length > 8
+          ? Infinity
+          : parseInt(digits || '0', decimal ? 10 : 16);
+      if (
+        !Number.isFinite(point) ||
+        point === 0 ||
+        point > 0x10ffff ||
+        (point >= 0xd800 && point <= 0xdfff)
+      ) {
+        return String.fromCodePoint(0xfffd);
+      }
+      return String.fromCodePoint(point);
     }
-  }
-
-  // HTML. The tags are cut out first and the attributes read out of them
-  // separately, so neither pattern nests a quantifier inside another.
-  for (const tag of document.matchAll(/<img\b[^>]{0,2000}>/gi)) {
-    consider(/\bsrc\s*=\s*["']([^"']{0,2048})["']/i.exec(tag[0])?.[1]);
-  }
-  for (const tag of document.matchAll(/<meta\b[^>]{0,2000}>/gi)) {
-    if (!/og:image|twitter:image/i.test(tag[0])) continue;
-    consider(/\bcontent\s*=\s*["']([^"']{0,2048})["']/i.exec(tag[0])?.[1]);
-  }
-
-  return [...found.values()];
+  );
 }
 
 /** Strict base64 decode: a malformed argument must not reach Mealie as garbage. */

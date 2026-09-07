@@ -335,7 +335,11 @@ describe('shopping and cookbook writes', () => {
 
 describe('engagement writes', () => {
   it('sets only the favourite flag when no rating was given', async () => {
-    const spy = mockFetch([GENERIC, { id: 'u-1' }, {}]);
+    const spy = mockFetch([
+      GENERIC,
+      { id: '420ace57-31ec-4cc0-a43d-eb612af362d8' },
+      {},
+    ]);
     await callText(await connect(), 'set_recipe_rating', {
       recipe: 'quark-bowl',
       is_favorite: true,
@@ -368,7 +372,11 @@ describe('engagement writes', () => {
   });
 
   it('passes an explicit timeline timestamp through', async () => {
-    const spy = mockFetch([GENERIC, { id: 'u-1' }, {}]);
+    const spy = mockFetch([
+      GENERIC,
+      { id: '420ace57-31ec-4cc0-a43d-eb612af362d8' },
+      {},
+    ]);
     await callText(await connect(), 'create_timeline_event', {
       recipe: 'quark-bowl',
       subject: 'Cooked it',
@@ -408,10 +416,11 @@ describe('sharing reads', () => {
   });
 
   it('adds the public URL to every token', async () => {
-    mockFetch([[{ id: 'tok-1', recipeId: 'r', createdAt: 'c' }]]);
+    const token = '7d3a1b2c-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    mockFetch([[{ id: token, recipeId: 'r', createdAt: 'c' }]]);
     const { text } = await callText(await connect(), 'list_share_tokens');
     expect(text).toContain(
-      '"url": "https://mealie.example.com/shared/recipes/tok-1"'
+      `"url": "https://mealie.example.com/shared/recipes/${token}"`
     );
   });
 });

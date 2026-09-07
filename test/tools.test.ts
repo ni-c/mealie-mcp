@@ -550,7 +550,7 @@ describe('write tools', () => {
   it('rates through the user route with the cached own id', async () => {
     const spy = mockFetch([
       GENERIC,
-      { id: 'u-1', username: 'cook' },
+      { id: '420ace57-31ec-4cc0-a43d-eb612af362d8', username: 'cook' },
       { rating: 4 },
     ]);
     await callText(await connect(), 'set_recipe_rating', {
@@ -559,19 +559,25 @@ describe('write tools', () => {
     });
     const calls = callsOf(spy);
     expect(calls[1]!.url).toContain('/api/users/self');
-    expect(calls[2]!.url).toContain('/api/users/u-1/ratings/quark-bowl');
+    expect(calls[2]!.url).toContain(
+      '/api/users/420ace57-31ec-4cc0-a43d-eb612af362d8/ratings/quark-bowl'
+    );
     expect(calls[2]!.body).toEqual({ rating: 4 });
   });
 
   it('files a timeline entry as a comment, not as a system event', async () => {
-    const spy = mockFetch([GENERIC, { id: 'u-1' }, {}]);
+    const spy = mockFetch([
+      GENERIC,
+      { id: '420ace57-31ec-4cc0-a43d-eb612af362d8' },
+      {},
+    ]);
     await callText(await connect(), 'create_timeline_event', {
       recipe: 'quark-bowl',
       subject: 'Cooked it',
     });
     expect(callsOf(spy)[2]!.body).toMatchObject({
       recipeId: GENERIC.id,
-      userId: 'u-1',
+      userId: '420ace57-31ec-4cc0-a43d-eb612af362d8',
       subject: 'Cooked it',
       eventType: 'comment',
     });
@@ -619,7 +625,7 @@ describe('write tools', () => {
       entryType: 'dinner',
       title: 'Kept',
       text: 'Kept too',
-      recipeId: 'r-1',
+      recipeId: '592cf12b-700c-4e4b-ba98-4ea114ee1e5a',
     };
     const spy = mockFetch([current, { ...current, entryType: 'breakfast' }]);
     await callText(await connect(), 'update_mealplan_entry', {
