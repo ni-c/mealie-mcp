@@ -3,12 +3,16 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+  # Re-runs the registry publication alone, from the checked-out ref, when
+  # the tag-driven run got as far as npm and GHCR and failed only there.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,6 +29,7 @@ jobs:
 
   publish:
     needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,6 +62,11 @@ jobs:
 
   mcp-registry:
     needs: publish
+    # On a tag push: after npm. On a manual run: alone, npm and GHCR already
+    # hold the version package.json names.
+    if: >-
+      always() &&
+      (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -105,15 +115,18 @@ jobs:
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
           arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
           base="https://github.com/modelcontextprotocol/registry/releases/download/v${PUBLISHER_VERSION}"
-          curl -fsSL -o mcp-publisher.tar.gz "${base}/mcp-publisher_${os}_${arch}.tar.gz"
+          archive="mcp-publisher_${os}_${arch}.tar.gz"
+          # Saved under its published name: the checksum line names that file.
+          curl -fsSL -o "$archive" "${base}/${archive}"
           curl -fsSL -o checksums.txt "${base}/registry_${PUBLISHER_VERSION}_checksums.txt"
-          grep " mcp-publisher_${os}_${arch}.tar.gz\$" checksums.txt | sha256sum -c -
-          tar xzf mcp-publisher.tar.gz mcp-publisher
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar xzf "$archive" mcp-publisher
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish
 
   github-release:
     needs: publish
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
