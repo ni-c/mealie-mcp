@@ -1,6 +1,16 @@
-# Build stage. node:24-alpine is the ACTIVE LTS line (Krypton) as of 2026-08-18 —
-# 26 exists but is a current release, not LTS, which is why dependabot.yml ignores
+# Build stage
+#
+# node:24-alpine is the ACTIVE LTS line, not the newest tag — roughly half of all
+# Node majors never become LTS, so "newest" and "supported" are different things.
+# 26 exists, but it is a current release, which is why dependabot.yml ignores
 # major bumps of this image while still taking digest and minor refreshes.
+# What keeps this honest is a comparison, not a version number written down here:
+# `node:lts-alpine` and `node:24-alpine` MUST resolve to the same digest. The day
+# 24 leaves LTS they diverge, and that is visible; a hardcoded version in a comment
+# is not. Verified 2026-09-12: they resolve to the same digest, and the pin below
+# is Node 24.20.0 — one rebuild behind that tag, which the next digest bump closes.
+# Refresh the digest and re-run that comparison together — a stale tag is
+# invisible if only the digest is re-resolved.
 FROM node:24-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
