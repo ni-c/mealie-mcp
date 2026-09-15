@@ -198,11 +198,14 @@ jobs:
       - run: npm run build
       - name: Start Mealie
         env:
-          # On the weekly run, against the newest v3 tag instead of the pin.
+          # On the weekly run, against Mealie's newest release instead of the pin.
           # Different question: the pinned run catches my regressions, this one
           # catches Mealie moving underneath the server. It is allowed to fail
           # without anybody's pull request being blocked.
-          MEALIE_IMAGE: ${{ github.event_name == 'schedule' && 'ghcr.io/mealie-recipes/mealie:v3' || '' }}
+          # `latest`, not `v3`: Mealie publishes full version tags, `latest` and
+          # `nightly`, but no floating major tag — `v3` answers "manifest
+          # unknown", so the weekly run failed before Mealie ever started.
+          MEALIE_IMAGE: ${{ github.event_name == 'schedule' && 'ghcr.io/mealie-recipes/mealie:latest' || '' }}
         run: docker compose -f test/integration/compose.yml up -d --wait
       - run: npm run test:integration
       - if: failure()
