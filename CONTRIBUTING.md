@@ -69,7 +69,7 @@ skip carries that reason, and if the tool is ever exercised the assertion fails
 until the reason is removed.
 
 CI runs the suite on every pull request against the pinned image, and weekly
-against `ghcr.io/mealie-recipes/mealie:v3` — the first catches regressions here,
+against `ghcr.io/mealie-recipes/mealie:latest` — the first catches regressions here,
 the second catches Mealie moving. It is deliberately not a gate on `publish`;
 see the comment in `ci.yml`.
 
