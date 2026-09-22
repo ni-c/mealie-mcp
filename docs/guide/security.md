@@ -38,9 +38,11 @@ and tags. `update_recipe` uses `PATCH`.
 
 ## The confirmation, honestly
 
-Eleven tools **ask a person** before they act: deleting a recipe, organizer,
-cookbook, shopping list, shopping-list items, mealplan entry or comment, merging
-foods or units, and creating or revoking a public share link.
+Sixteen tools **ask a person** before they act: deleting a recipe, organizer,
+cookbook, shopping list, shopping-list items, mealplan entry or comment;
+replacing written content through `update_recipe`, `update_organizer`,
+`update_mealplan_entry` or `update_shopping_list_items`; merging foods or units;
+and creating a cookbook or creating or revoking a public share link.
 
 Where the MCP client supports elicitation, that is a **dialog** shown to whoever
 is sitting there — the model cannot answer it on their behalf, and nothing

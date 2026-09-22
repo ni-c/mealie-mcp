@@ -1,7 +1,7 @@
 # Asking a person
 
-Eleven of the 53 tools remove something Mealie keeps no history of, or change who
-can see a recipe. All eleven **ask a person first**.
+Sixteen tools **ask a person first**. They replace or remove something Mealie
+keeps no history of, or they change who can see a recipe.
 
 Not a `confirm: true` argument the model can set. Not a token the model reads out
 of its own previous result. A dialog, raised through [MCP
@@ -23,21 +23,33 @@ answer comes back, nothing happens.
 | `delete_recipe` · `delete_cookbook` · `delete_recipe_comment` | always |
 | `delete_mealplan_entry` · `delete_organizer` | always |
 | `delete_shopping_list` · `delete_shopping_list_items` | always |
+| `update_recipe` · `update_organizer` | when it replaces written content |
+| `update_mealplan_entry` · `update_shopping_list_items` | when it replaces written content |
 | `merge_foods` · `merge_units` | always, bound to the **direction** |
+| `create_cookbook` | always |
 | `create_share_token` | always |
 | `delete_share_token` | always |
 | everything else | never |
 
-Two of them destroy nothing, and that is the point of having a dialog rather than
-only an annotation:
+The four `update_*` tools are here because "update" sounds additive and is not.
+Mealie keeps no version history, so a new instruction list replaces the old one
+and there is nowhere to read it back from. They ask only when the call actually
+replaces written content — changing a time, a serving count or a source link
+does not, and a dialog on that would be noise.
+
+`delete_share_token` looks like the safe direction and is still asked about: the
+link cannot be reissued. A new share token is a different URL, so whoever was
+sent the old one simply finds a dead link, and this server cannot tell whom that
+was. Its description used to say in so many words that it needed no
+confirmation.
+
+Two of the sixteen destroy nothing at all, and that is the point of having a
+dialog rather than only an annotation:
 
 - `create_share_token` widens who can see the data, and unlike a deletion the
   effect is invisible until somebody uses the link.
-- `delete_share_token` narrows access, which is the safe direction — but the link
-  cannot be reissued. A new share token is a different URL, so whoever was sent
-  the old one simply finds a dead link, and this server cannot tell whom that
-  was. Its description used to say in so many words that it needed no
-  confirmation.
+- `create_cookbook` does the same one step further in: its name, description and
+  saved filter become readable outside the instance.
 
 The merges are bound to the **ordered pair**, not to the set: swapping the two
 arguments destroys the wrong record, so an approval for “merge A into B” will not
@@ -131,10 +143,14 @@ They are advice, and the specification says so:
 An annotation is something a client may ignore. The dialog is not: it is enforced
 here, on the server side, and no answer means no change. The two are different
 claims — the annotation says what a call _does_, the dialog decides whether it
-_happens_ — which is why a tool can be marked destructive without being guarded.
-`update_recipe` is exactly that case: Mealie keeps no version history, so
-replacing an instruction list is destructive — and it is not asked about, because
-a dialog on every edit is how people learn to tick without reading.
+_happens_ — so the two sets need not be the same set.
+
+In this server they overlap in one direction only: every tool annotated
+`destructiveHint: true` is also guarded, and a test asserts it over the whole
+catalogue rather than tool by tool. The gap runs the other way.
+`create_share_token` destroys nothing and is still asked about, because what it
+does instead — widening who can read the data, invisibly until somebody follows
+the link — is not something an annotation has a field for.
 
 ## Behind a gateway
 

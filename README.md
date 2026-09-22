@@ -303,8 +303,9 @@ The full guide, tool reference and security notes live at
 npm install && npm test && npm run build
 ```
 
-`scripts/verify-live.mjs` exercises all 52 tools against a **throwaway** Mealie
-instance; the recipe for setting one up is in [CONTRIBUTING.md](CONTRIBUTING.md).
+`npm run test:integration` exercises every tool in the catalogue against a
+**throwaway** Mealie instance in Docker; the recipe for bringing one up is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 The architecture diagram and the social card are rendered from
 `docs/assets/architecture.source.svg` and `docs/assets/og.json` by
