@@ -12,6 +12,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [0.5.0] - 2026-09-22
+
+### Added
+
+- **A preparation step can carry its own heading.** Mealie's
+  `recipeInstructions` entries hold a `title` beside the `text`, and
+  `create_recipe` and `update_recipe` wrote that title as an empty string
+  whatever was asked of them — a recipe divided into "Prep", "Bake" and "Serve"
+  had no way through this server. `instructions` now takes either a plain
+  string per step, as before, or `{title, text}`. The bound on `text` is the
+  same in both forms and a bare string still means a step with no heading, so
+  nothing an existing caller sends behaves differently. Contributed by
+  [@titusjaka](https://github.com/titusjaka).
+- **`set_recipe_image` sets a recipe's cover picture**, the fifty-third tool.
+  Mealie's image route was not reachable through this server at all — neither
+  by URL nor by upload — so a recipe created here had whatever picture the
+  scraper found, or none. The tool takes the image base64-encoded with its
+  format named from a closed set (`jpeg`, `jpg`, `png`, `webp`), which is what
+  keeps the upload filename and content type out of a caller's hands; the
+  bytes are capped at 8 MB, as `import_recipe_from_image` already caps them.
+  It answers with the image version Mealie assigned rather than a constant, so
+  a `200` from something that never forwarded the write — a reverse proxy, an
+  SSO portal — is an error instead of a confident claim. Not guarded by a
+  dialog: a cover image is usually the scraper's rather than a person's
+  writing, and re-importing brings it back. Contributed by
+  [@titusjaka](https://github.com/titusjaka).
+
+  Note for anyone who read the old text: image uploads used to be listed among
+  the routes this server deliberately does not reach. That sentence was true
+  until this release and is now corrected in the README and the security guide.
+
+### Fixed
+
+- **The approval guide said eleven tools ask a person; sixteen do.** Its table
+  stopped after eleven and closed with "everything else — never", so the page
+  that explains the guard denied it for `update_recipe`, `update_organizer`,
+  `update_mealplan_entry`, `update_shopping_list_items` and `create_cookbook`
+  — the five added in 0.2.1. Its worked example was wrong in both halves as
+  well: it named `update_recipe` as a tool marked destructive _without_ being
+  guarded, which it has not been since 0.2.1, and no tool in the catalogue is
+  in that position — every one of the fourteen destructive tools takes a
+  confirmation token. The gap runs the other way, and the page now names the
+  case that exists. `SECURITY.md` and the tool reference were right all along;
+  a test holds the guide to the built server from here on, the way one already
+  held the reference page.
+- The read-tool count was stated as seventeen in `server.json` and the getting
+  started guide, where the catalogue has eighteen. `server.json` is what the
+  MCP registry shows.
+- The README pointed at `scripts/verify-live.mjs` for a run against a live
+  instance. There is no `scripts/` directory — it became `test/integration/`
+  — so it names `npm run test:integration` now.
+
 ## [0.4.0] - 2026-09-07
 
 ### Security
@@ -511,8 +563,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
 
+[0.5.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.3.0
+[0.2.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.2.0
 [0.1.2]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.1.0
