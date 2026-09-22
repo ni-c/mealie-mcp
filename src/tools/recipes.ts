@@ -386,16 +386,28 @@ export function registerRecipeReadTools(
 }
 
 /**
- * The editable recipe fields, shared by `create_recipe` and `update_recipe`.
+ * One preparation step in the object form of `instructions`.
  *
- * `name` is not in here: it is required when creating and optional when
- * updating, so each tool adds its own.
+ * Mealie's `recipeInstructions` entries carry a `title` beside the `text`, and
+ * a step with its own heading — "Prep", "Bake" — had no way through this
+ * server while the field was a bare string. The string form stays, because it
+ * is what a caller writes when the step has no heading, and it maps to the
+ * same `{title: '', text}` this server always sent.
  */
 const instructionStep = z.object({
   title: z.string().trim().min(1).max(255).optional(),
   text: z.string().trim().min(1).max(20_000),
 });
 
+/** A step once zod has parsed it, as {@link recipePatch} receives it. */
+type InstructionStep = z.infer<typeof instructionStep>;
+
+/**
+ * The editable recipe fields, shared by `create_recipe` and `update_recipe`.
+ *
+ * `name` is not in here: it is required when creating and optional when
+ * updating, so each tool adds its own.
+ */
 const recipeFields = {
   description: z.string().max(20_000).optional(),
   ingredients: z
@@ -746,8 +758,6 @@ export function registerRecipeWriteTools(
  * `{note, display}` and of steps onto `{text}` is the part most likely to break
  * silently, because Mealie accepts a wrong shape and stores an empty recipe.
  */
-type InstructionStep = z.infer<typeof instructionStep>;
-
 export function recipePatch(fields: {
   name?: string | undefined;
   description?: string | undefined;
