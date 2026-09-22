@@ -108,7 +108,7 @@ Creates a recipe from the given fields. To add one from a website use
 | `name` | string | yes | Recipe name. Mealie derives the slug from it and rejects a duplicate |
 | `description` | string | no | Recipe description |
 | `ingredients` | string[] | no | Ingredient lines as free text, e.g. `"500 g quark"`. They replace the existing list; use `parse_ingredients` first if structured food and unit references are wanted |
-| `instructions` | string[] | no | Preparation steps, in order. They replace the existing list |
+| `instructions` | string[] \| { title?, text }[] | no | Preparation steps, in order. They replace the existing list. A step is either plain text or `{ title, text }` when it carries its own heading |
 | `tags` | string[] | no | Tag names. They replace the existing tags; unknown names are created |
 | `categories` | string[] | no | Category names. They replace the existing categories |
 | `prep_time` | string | no | Preparation time |
