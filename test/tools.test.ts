@@ -408,6 +408,36 @@ describe('recipePatch', () => {
     });
   });
 
+  it('carries an explicit title through for an instruction step', () => {
+    expect(
+      recipePatch({ instructions: [{ title: 'Prep', text: 'Mix it.' }] })
+    ).toEqual({
+      recipeInstructions: [{ title: 'Prep', text: 'Mix it.' }],
+    });
+  });
+
+  it('maps a step object without a title the same as a bare string', () => {
+    expect(recipePatch({ instructions: [{ text: 'Mix it.' }] })).toEqual({
+      recipeInstructions: [{ title: '', text: 'Mix it.' }],
+    });
+  });
+
+  it('accepts a mix of bare strings and titled steps in one list', () => {
+    expect(
+      recipePatch({
+        instructions: [
+          'Preheat the oven.',
+          { title: 'Bake', text: 'Bake for 20 minutes.' },
+        ],
+      })
+    ).toEqual({
+      recipeInstructions: [
+        { title: '', text: 'Preheat the oven.' },
+        { title: 'Bake', text: 'Bake for 20 minutes.' },
+      ],
+    });
+  });
+
   it('renames the snake_case arguments to Mealie fields', () => {
     expect(
       recipePatch({
