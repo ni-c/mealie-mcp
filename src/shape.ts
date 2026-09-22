@@ -156,7 +156,14 @@ export function imageUrl(
   return `${baseUrl}/api/media/recipes/${id}/images/original.webp?version=${version}`;
 }
 
-function imageVersion(value: unknown): string | undefined {
+/**
+ * The cache-busting counter Mealie calls a recipe's `image`.
+ *
+ * Exported because `set_recipe_image` reads it out of the upload's own
+ * response, where it is the only evidence that the image was stored — the same
+ * value, from the other end of the same field.
+ */
+export function imageVersion(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
     return String(value);
   }

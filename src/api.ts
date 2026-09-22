@@ -282,8 +282,8 @@ export class MealieApi {
     return this.request('POST', path, body, timeoutMs);
   }
 
-  put(path: string, body?: unknown): Promise<unknown> {
-    return this.request('PUT', path, body);
+  put(path: string, body?: unknown, timeoutMs?: number): Promise<unknown> {
+    return this.request('PUT', path, body, timeoutMs);
   }
 
   patch(path: string, body?: unknown): Promise<unknown> {

@@ -145,11 +145,22 @@ describe('a recipe through its whole life', () => {
   });
 
   it('sets its cover image', async () => {
-    await asking.call('set_recipe_image', {
-      recipe: slug,
-      image_base64: ONE_PIXEL_PNG_BASE64,
-      format: 'png',
-    });
+    // The version Mealie answers with is the cache-busting counter it keeps on
+    // the recipe, so reading the recipe back is what proves the upload landed
+    // rather than merely returning 200.
+    const { image_version } = parse<{ image_version: string }>(
+      await asking.call('set_recipe_image', {
+        recipe: slug,
+        image_base64: ONE_PIXEL_PNG_BASE64,
+        format: 'png',
+      })
+    );
+    expect(image_version).toMatch(/^[0-9]{1,12}$/);
+
+    const { imageUrl } = parse<{ imageUrl: string }>(
+      await asking.call('get_recipe', { recipe: slug })
+    );
+    expect(imageUrl).toContain(`version=${image_version}`);
   });
 });
 

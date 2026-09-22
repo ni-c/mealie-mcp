@@ -98,6 +98,12 @@ describe('tool registration', () => {
       'add_shopping_list_items',
       'add_recipe_comment',
       'create_recipe',
+      // Replacement, and Mealie keeps no image history — so this one sits on
+      // the line rather than safely behind it, and is here to make the answer
+      // a decision instead of a default. A cover image is usually the
+      // scraper's rather than a person's, and re-importing from `orgURL`
+      // brings it back; see the note at its registration.
+      'set_recipe_image',
     ]) {
       expect(byName.get(name)?.destructiveHint, name).toBe(false);
     }

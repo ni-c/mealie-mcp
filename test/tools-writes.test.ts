@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { IMAGE_MIME_TYPES } from '../src/media.js';
 import {
   callsOf,
   callText,
@@ -435,6 +436,64 @@ describe('recipe image writes', () => {
     const form = (spy.mock.calls[0]![1] as RequestInit).body as FormData;
     expect((form.get('image') as File).type).toBe('image/jpeg');
     expect(form.get('extension')).toBe('jpg');
+  });
+
+  // The filename, the content type and the `extension` field are three
+  // statements about the same bytes. Mealie reads only the third today, which
+  // is exactly why the other two can drift without anything noticing.
+  it.each(['jpeg', 'jpg', 'png', 'webp'] as const)(
+    'states one format three times over for %s',
+    async (format) => {
+      const spy = mockFetch();
+      await callText(await connect(), 'set_recipe_image', {
+        recipe: 'quark-bowl',
+        image_base64: Buffer.from('bytes').toString('base64'),
+        format,
+      });
+      const form = (spy.mock.calls[0]![1] as RequestInit).body as FormData;
+      const extension = form.get('extension') as string;
+      const file = form.get('image') as File;
+      expect(file.name).toBe(`recipe.${extension}`);
+      expect(file.type).toBe(IMAGE_MIME_TYPES[extension as 'png']);
+      expect(extension).not.toBe('jpeg');
+    }
+  );
+
+  it('answers with the image version Mealie reported', async () => {
+    mockFetch();
+    const { isError, text } = await callText(
+      await connect(),
+      'set_recipe_image',
+      {
+        recipe: 'quark-bowl',
+        image_base64: Buffer.from('bytes').toString('base64'),
+        format: 'png',
+      }
+    );
+    expect(isError).toBe(false);
+    // GENERIC carries image: '1'; the answer reports it rather than a constant.
+    expect(JSON.parse(text.slice(text.indexOf('{')))).toEqual({
+      recipe: 'quark-bowl',
+      image_version: '1',
+    });
+  });
+
+  it('refuses to claim success when Mealie reports no new version', async () => {
+    // A reverse proxy or SSO portal answering a PUT with 200 and a login page
+    // is the case this exists for: the status says fine, nothing was stored.
+    mockFetch({ detail: 'not a recipe' });
+    const { isError, text } = await callText(
+      await connect(),
+      'set_recipe_image',
+      {
+        recipe: 'quark-bowl',
+        image_base64: Buffer.from('bytes').toString('base64'),
+        format: 'png',
+      }
+    );
+    expect(isError).toBe(true);
+    expect(text).toContain('did not report a new image version');
+    expect(text).toContain('quark-bowl');
   });
 
   it('accepts a recipe UUID as well as a slug', async () => {

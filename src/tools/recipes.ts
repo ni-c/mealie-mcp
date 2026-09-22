@@ -14,15 +14,22 @@ import {
 } from '../schema.js';
 import {
   commentSummary,
+  imageVersion,
   listFrom,
   paginationOf,
+  rec,
   recipeDetail,
   recipeSummary,
   suggestion,
   timelineEvent,
 } from '../shape.js';
 
-import { assertPathSegment, query, type MealieApi } from '../api.js';
+import {
+  assertPathSegment,
+  LONG_TIMEOUT_MS,
+  query,
+  type MealieApi,
+} from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
 import {
@@ -674,26 +681,57 @@ export function registerRecipeWriteTools(
             'Image format, used for the upload filename, extension field and content type'
           ),
       }),
+      // `WRITE`, not `DESTRUCTIVE`, and that is a decision rather than the
+      // default. The rule in `annotations.ts` is about content a person wrote,
+      // and a cover image usually is not: Mealie's scraper fetches it during
+      // an import, and re-importing from `orgURL` brings it back. Guarding the
+      // everyday call — set a picture on the recipe that just came in — is the
+      // direction `approval.md` warns about, where whoever answers the dialog
+      // for the harmless call stops reading it before the one that matters.
       annotations: WRITE,
-      outputSchema: plain({ recipe: z.string(), image_set: z.boolean() }),
+      outputSchema: plain({ recipe: z.string(), image_version: z.string() }),
     },
     async ({ recipe, image_base64, format }) =>
       run(async () => {
         const bytes = decodeBase64(image_base64, 'image_base64');
         const ref = assertPathSegment(recipe, 'recipe');
+        // One spelling, used three times over. Mealie's upload route wants the
+        // extension without a leading dot, and `jpg` is how it is conventionally
+        // written — but the filename and the content type describe the same
+        // bytes, so deriving all three from one value is what keeps them from
+        // disagreeing. Only `extension` is read today; the filename merely has
+        // to be there, or the part arrives as a string rather than as a file.
+        const extension = format === 'jpeg' ? 'jpg' : format;
         const form = new FormData();
         form.append(
           'image',
           new Blob([bytes as unknown as ArrayBuffer], {
-            type: IMAGE_MIME_TYPES[format],
+            type: IMAGE_MIME_TYPES[extension],
           }),
-          `recipe.${format}`
+          `recipe.${extension}`
         );
-        // Mealie's upload route wants the extension without a leading dot; jpg
-        // is the conventional spelling of it, not jpeg.
-        form.append('extension', format === 'jpeg' ? 'jpg' : format);
-        await api.put(`/api/recipes/${ref}/image`, form);
-        return jsonResult({ recipe: ref, image_set: true });
+        form.append('extension', extension);
+        // The long timeout, for the reason `LONG_TIMEOUT_MS` gives: this is the
+        // largest body the server ever sends, and Mealie re-encodes it to WebP
+        // in three sizes inside the request.
+        const updated = await api.put(
+          `/api/recipes/${ref}/image`,
+          form,
+          LONG_TIMEOUT_MS
+        );
+        // Mealie answers with the recipe's new image version — the cache-busting
+        // counter that `imageUrl` is built from. Reporting that, rather than a
+        // constant `true`, is the difference between saying what happened and
+        // saying what was asked for: every failure here is an error result, so a
+        // boolean could only ever have read `true`.
+        const version = imageVersion(rec(updated).image);
+        if (version === undefined) {
+          throw new ToolInputError(
+            `Mealie accepted the upload for "${ref}" but did not report a new image version. ` +
+              'Read the recipe back to check whether the image was stored.'
+          );
+        }
+        return jsonResult({ recipe: ref, image_version: version });
       })
   );
 
