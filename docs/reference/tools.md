@@ -160,7 +160,7 @@ Replaces a recipe's cover image.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `recipe` | string | yes | Recipe slug or UUID |
-| `image_base64` | string | yes | The image, base64-encoded, without a `data:` URI prefix |
+| `image_base64` | string | yes | The image, base64-encoded, without a `data:` URI prefix (max 8 MB) |
 | `format` | string | yes | `jpeg`, `jpg`, `png` or `webp` — used for the upload filename, extension field and content type |
 
 ### delete_recipe 👤

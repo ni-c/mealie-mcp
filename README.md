@@ -205,7 +205,7 @@ now answer with the fields as well.
 
 Most tools carry `untrusted: true` and `source: "mealie"` as fields: recipes are
 routinely scraped from arbitrary websites and comments come from other users of
-the instance. The ten without it answer with an id this server was given — or,
+the instance. The eleven without it answer with an id this server was given — or,
 for `get_about`, a version string and the permission flags of the account it
 authenticates as, which are facts the model should act on.
 
@@ -215,7 +215,8 @@ result against its schema before it goes out — a strict shape would turn a fie
 a release adds into a tool that fails outright.
 
 **Recipes** — `search_recipes`, `get_recipe`, `suggest_recipes`, `create_recipe`,
-`update_recipe`, `duplicate_recipe`, `set_recipe_last_made`, `delete_recipe` 🔒
+`update_recipe`, `duplicate_recipe`, `set_recipe_image`, `set_recipe_last_made`,
+`delete_recipe` 🔒
 
 **Import** — `preview_recipe_url` (dry run, saves nothing), `import_recipe_from_url`,
 `import_recipe_from_html_or_json`, `import_recipe_from_image`
