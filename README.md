@@ -259,7 +259,9 @@ household management, email, AI provider settings), `/api/users/api-tokens` (a t
 that mints API credentials is privilege-escalation surface), the authentication
 routes, user CRUD and passwords, webhooks, event notifications and recipe actions
 (all three trigger outbound HTTP from the instance), meal plan rules, migrations,
-seeders, invitations, bulk export and ZIP download, and asset and image uploads.
+seeders, invitations, bulk export and ZIP download, and asset uploads. The one
+upload route that is exposed is a recipe's cover image, through
+`set_recipe_image`.
 
 `PUT /api/recipes/{slug}` is not exposed either: it replaces the entire 33-field
 recipe object, so a partial update through it silently drops ingredients, steps and
