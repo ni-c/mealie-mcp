@@ -11,6 +11,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/catalogue.js';
 import { bootstrap, type Sandbox } from './bootstrap.js';
 
+/** A 1x1 transparent PNG, the smallest image Mealie's own processing can open. */
+const ONE_PIXEL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 /**
  * Every tool in the catalogue, against a real Mealie in Docker.
  *
@@ -150,6 +154,25 @@ describe('a recipe through its whole life', () => {
         name: 'Integration Bowl Copy',
       })
     ).slug;
+  });
+
+  it('sets its cover image', async () => {
+    // The version Mealie answers with is the cache-busting counter it keeps on
+    // the recipe, so reading the recipe back is what proves the upload landed
+    // rather than merely returning 200.
+    const { image_version } = parse<{ image_version: string }>(
+      await asking.call('set_recipe_image', {
+        recipe: slug,
+        image_base64: ONE_PIXEL_PNG_BASE64,
+        format: 'png',
+      })
+    );
+    expect(image_version).toMatch(/^[0-9]{1,12}$/);
+
+    const { imageUrl } = parse<{ imageUrl: string }>(
+      await asking.call('get_recipe', { recipe: slug })
+    );
+    expect(imageUrl).toContain(`version=${image_version}`);
   });
 });
 

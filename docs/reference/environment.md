@@ -62,7 +62,7 @@ read, so child processes cannot pick it up out of `/proc/<pid>/environ`.
 
 ## `MEALIE_READ_ONLY`
 
-Exactly `true` registers only the 18 read tools; the 34 write and import tools
+Exactly `true` registers only the 18 read tools; the 35 write and import tools
 are not registered at all, so a model cannot call them and does not see them in
 the catalog.
 

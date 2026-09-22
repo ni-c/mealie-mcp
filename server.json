@@ -33,7 +33,7 @@
         },
         {
           "name": "MEALIE_READ_ONLY",
-          "description": "Exactly 'true' registers only the 17 read tools",
+          "description": "Exactly 'true' registers only the 18 read tools",
           "isRequired": false,
           "format": "string"
         },
@@ -85,7 +85,7 @@
         },
         {
           "name": "MEALIE_READ_ONLY",
-          "description": "Exactly 'true' registers only the 17 read tools",
+          "description": "Exactly 'true' registers only the 18 read tools",
           "isRequired": false,
           "format": "string"
         },

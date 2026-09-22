@@ -19,7 +19,7 @@ afterEach(() => {
 describe('tool registration', () => {
   it('registers every tool by default', async () => {
     const { tools } = await (await connect()).listTools();
-    expect(tools).toHaveLength(52);
+    expect(tools).toHaveLength(53);
   });
 
   it('registers only read tools in read-only mode', async () => {
@@ -62,7 +62,7 @@ describe('tool registration', () => {
   it('lists its tools without credentials but fails every call', async () => {
     // Registries and sandbox inspectors have to be able to enumerate the tools.
     const client = await connect({ url: undefined, token: undefined });
-    expect((await client.listTools()).tools).toHaveLength(52);
+    expect((await client.listTools()).tools).toHaveLength(53);
     const { text, isError } = await callText(client, 'get_about');
     expect(isError).toBe(true);
     expect(text).toContain('MEALIE_URL');
@@ -98,6 +98,12 @@ describe('tool registration', () => {
       'add_shopping_list_items',
       'add_recipe_comment',
       'create_recipe',
+      // Replacement, and Mealie keeps no image history — so this one sits on
+      // the line rather than safely behind it, and is here to make the answer
+      // a decision instead of a default. A cover image is usually the
+      // scraper's rather than a person's, and re-importing from `orgURL`
+      // brings it back; see the note at its registration.
+      'set_recipe_image',
     ]) {
       expect(byName.get(name)?.destructiveHint, name).toBe(false);
     }
@@ -159,6 +165,7 @@ describe('tool registration', () => {
       'delete_shopping_list',
       'delete_shopping_list_items',
       'get_about',
+      'set_recipe_image',
       'set_recipe_last_made',
     ]);
   });
