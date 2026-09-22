@@ -172,6 +172,67 @@ describe('the tool reference', () => {
   });
 });
 
+/**
+ * The approval guide says the same thing as the reference page, in prose.
+ *
+ * It had no test, and it drifted: it claimed eleven guarded tools where there
+ * were sixteen, and its worked example named `update_recipe` as the tool that
+ * is destructive *without* being guarded — which it has not been since 0.2.1.
+ * A page that argues about the guard is the last place a stale number belongs,
+ * so the number and the table are now read out of the built server like the
+ * markers next door.
+ */
+const approval = read('docs/guide/approval.md');
+
+/** Written-out counts, for the sentence the page opens with. */
+const NUMBER_WORDS: Record<string, number> = {
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+};
+
+/** The tools named in the "What asks, and when" table, one row at a time. */
+function askingTools(markdown: string): string[] {
+  const section = markdown.split('## What asks, and when')[1] ?? '';
+  const names: string[] = [];
+  for (const line of section.split('\n')) {
+    if (!line.startsWith('|')) {
+      if (names.length > 0) break;
+      continue;
+    }
+    for (const [, name] of line.matchAll(/`([a-z][a-z0-9_]*)`/g)) {
+      names.push(name as string);
+    }
+  }
+  return names;
+}
+
+describe('the approval guide', () => {
+  it('lists exactly the tools that ask a person', async () => {
+    expect(askingTools(approval).toSorted()).toEqual(
+      (await guardedTools()).toSorted()
+    );
+  });
+
+  it('opens with the number of tools that really ask', async () => {
+    const word = /^(\w+) tools \*\*ask a person first\*\*/m.exec(approval)?.[1];
+    expect(word, 'the opening sentence changed shape').toBeDefined();
+    expect(NUMBER_WORDS[(word as string).toLowerCase()]).toBe(
+      (await guardedTools()).length
+    );
+  });
+});
+
 describe('the fixed cross-document anchors', () => {
   // These headings are linked from several places and are spelled identically in
   // every server of this family, so a rename here quietly breaks links there.
