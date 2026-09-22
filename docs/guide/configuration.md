@@ -82,10 +82,10 @@ MEALIE_ALLOW_TOOLS=search_recipes,get_recipe,import_recipe_from_url
 MEALIE_DENY_TOOLS=delete_*
 ```
 
-Why bother, when all fifty-two work: a model chooses the right tool far more
+Why bother, when all fifty-three work: a model chooses the right tool far more
 reliably from a handful than from a long list, and every tool it can see costs
 context on every single request. If this is the only MCP server in a session,
-fifty-two is fine. If it is one of six, it is not.
+fifty-three is fine. If it is one of six, it is not.
 
 **The syntax.** Comma-separated entries. An entry is either an exact tool name or
 a prefix with a trailing `*` — `list_*` matches every tool whose name starts with

@@ -5,29 +5,26 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import { LONG_TIMEOUT_MS, query, type MealieApi } from '../api.js';
 import { READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
+import {
+  decodeBase64,
+  IMAGE_MIME_TYPES,
+  MAX_IMAGE_BASE64_CHARS,
+} from '../media.js';
 import { run, ToolInputError, untrustedResult } from '../result.js';
 import { assertFetchableUrl, httpUrl } from '../schema.js';
 import { recipeDetail } from '../shape.js';
 import { cleanText } from '../text.js';
 
 /**
- * Cap on an inline HTML or image payload.
+ * Cap on an inline HTML payload.
  *
- * These two tools are the only ones that take bulk data *into* the server, and
- * both of them forward it. 2 MB of HTML is more than any recipe page, and a
- * base64 photo of a cookbook page is a few hundred kB — the limit exists so a
- * runaway argument cannot be turned into memory pressure or a multi-megabyte
- * upload.
+ * import_recipe_from_html_or_json is the only tool that takes bulk HTML into
+ * the server, and it forwards it. 2 MB is more than any recipe page — the
+ * limit exists so a runaway argument cannot be turned into memory pressure or
+ * a multi-megabyte upload. See ../media.js for the equivalent image limit,
+ * shared with import_recipe_from_image and set_recipe_image.
  */
 const MAX_HTML_CHARS = 2 * 1024 * 1024;
-const MAX_IMAGE_BASE64_CHARS = 8 * 1024 * 1024;
-
-const IMAGE_MIME_TYPES = {
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-} as const;
 
 export function registerImportReadTools(
   server: McpServer,
@@ -187,7 +184,7 @@ export function registerImportTools(
     },
     async ({ image_base64, format, translate_language }) =>
       run(async () => {
-        const bytes = decodeBase64(image_base64);
+        const bytes = decodeBase64(image_base64, 'image_base64');
         const form = new FormData();
         form.append(
           'images',
@@ -586,17 +583,6 @@ export function decodeEntities(text: string): string {
       return String.fromCodePoint(point);
     }
   );
-}
-
-/** Strict base64 decode: a malformed argument must not reach Mealie as garbage. */
-function decodeBase64(value: string): Buffer {
-  const cleaned = value.replace(/\s+/g, '');
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
-    throw new ToolInputError(
-      'image_base64 is not valid base64. Pass the raw encoding without a "data:" prefix.'
-    );
-  }
-  return Buffer.from(cleaned, 'base64');
 }
 
 /**

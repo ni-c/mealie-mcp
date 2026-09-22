@@ -1,6 +1,6 @@
 # Asking a person
 
-Eleven of the 52 tools remove something Mealie keeps no history of, or change who
+Eleven of the 53 tools remove something Mealie keeps no history of, or change who
 can see a recipe. All eleven **ask a person first**.
 
 Not a `confirm: true` argument the model can set. Not a token the model reads out

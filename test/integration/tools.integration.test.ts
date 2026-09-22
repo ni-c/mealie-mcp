@@ -11,6 +11,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/catalogue.js';
 import { bootstrap, type Sandbox } from './bootstrap.js';
 
+/** A 1x1 transparent PNG, the smallest image Mealie's own processing can open. */
+const ONE_PIXEL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 /**
  * Every tool in the catalogue, against a real Mealie in Docker.
  *
@@ -138,6 +142,14 @@ describe('a recipe through its whole life', () => {
         name: 'Integration Bowl Copy',
       })
     ).slug;
+  });
+
+  it('sets its cover image', async () => {
+    await asking.call('set_recipe_image', {
+      recipe: slug,
+      image_base64: ONE_PIXEL_PNG_BASE64,
+      format: 'png',
+    });
   });
 });
 

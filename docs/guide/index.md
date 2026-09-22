@@ -14,7 +14,7 @@ model would bury the useful calls under administrative noise — and hand the mo
 routes nobody wants it to have, like backups, user management and API-token
 minting.
 
-This server exposes **52 tools** instead, chosen so that the common tasks are one
+This server exposes **53 tools** instead, chosen so that the common tasks are one
 call and the dangerous surface is not reachable at all:
 
 - **Common tasks are one call.** `import_recipe_from_url` imports a recipe and

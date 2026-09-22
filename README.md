@@ -23,9 +23,9 @@ collection: search and read recipes with their ingredients and steps, import new
 from a website, keep tags and categories tidy, plan meals, build shopping lists from
 those plans, and record what was actually cooked.
 
-Fifty-two tools is the ceiling, not the floor: `MEALIE_ALLOW_TOOLS=essential`
+Fifty-three tools is the ceiling, not the floor: `MEALIE_ALLOW_TOOLS=essential`
 registers a curated eight instead, and a model picks the right tool far more
-reliably from eight than from fifty-two — see
+reliably from eight than from fifty-three — see
 [choosing which tools load](#choosing-which-tools-load).
 
 ![Demo](https://mealie-mcp.ni-c.de/demo.gif)
@@ -40,7 +40,7 @@ reliably from eight than from fifty-two — see
   <img src="https://mealie-mcp.ni-c.de/architecture.svg" alt="An MCP client speaks stdio to mealie-mcp, which calls the Mealie REST API over HTTPS; Mealie fetches recipe websites server-side, which is why the URL guard refuses its own loopback and link-local range" width="800">
 </picture>
 
-Mealie's REST API has 259 operations across 175 paths. This server exposes **52
+Mealie's REST API has 259 operations across 175 paths. This server exposes **53
 tools**, chosen so that the common tasks are one call and the dangerous surface is
 not reachable at all. Verified against **Mealie v3.25.0**; the source of truth for
 every request shape is the `GET /openapi.json` of a running instance, not the
@@ -48,7 +48,7 @@ published documentation, which is out of date in several places.
 
 ## What makes it different
 
-**Fifty-two curated tools out of 259 API operations.** Mealie's REST API is far
+**Fifty-three curated tools out of 259 API operations.** Mealie's REST API is far
 larger than a model should reach into; what is here covers the common tasks in one
 call — search, read and import recipes, keep tags and categories tidy, plan meals,
 build shopping lists, manage cookbooks and ratings.

@@ -3,7 +3,7 @@ layout: home
 hero:
   name: 'mealie-mcp'
   text: 'A curated, safe view of your Mealie instance for an AI model'
-  tagline: 'Search and cook from your recipes, import new ones, plan meals and build shopping lists — through 52 tools chosen so the common tasks are one call and the dangerous surface is out of reach.'
+  tagline: 'Search and cook from your recipes, import new ones, plan meals and build shopping lists — through 53 tools chosen so the common tasks are one call and the dangerous surface is out of reach.'
   actions:
     - theme: brand
       text: Get started
@@ -15,7 +15,7 @@ hero:
       text: GitHub
       link: https://github.com/ni-c/mealie-mcp
 features:
-  - title: 52 curated tools
+  - title: 53 curated tools
     details: Mealie's REST API has 259 operations; this server exposes the ones a model should reach, so the common tasks are one call — search, read and import recipes, keep tags and categories tidy, plan meals, build shopping lists, manage cookbooks, ratings, comments and share links.
   - title: The dangerous surface is unreachable
     details: No admin routes, no token minting, no webhooks or outbound-HTTP triggers — and no PUT-replace, which silently drops recipe fields. update_recipe uses PATCH, so only the fields you name change.
@@ -46,7 +46,7 @@ features:
 
   <rect class="node-accent" x="280" y="55" width="170" height="110" rx="10" />
   <text class="label-title" x="365" y="87" text-anchor="middle">mealie-mcp</text>
-  <text class="label-muted" x="365" y="107" text-anchor="middle">52 tools</text>
+  <text class="label-muted" x="365" y="107" text-anchor="middle">53 tools</text>
   <text class="label-muted" x="365" y="125" text-anchor="middle">asks a person</text>
   <text class="label-muted" x="365" y="143" text-anchor="middle">read-only mode</text>
 

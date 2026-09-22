@@ -1,6 +1,6 @@
 # Tools
 
-All fifty-two are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
+All fifty-three are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
 `MEALIE_DENY_TOOLS` narrow the list to the ones you want, and `essential` selects a
 curated eight — see
 [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
@@ -8,13 +8,13 @@ curated eight — see
 One section per tool: what it does, its parameters, and — for the guarded ones —
 what a person is asked.
 
-52 tools in total. The 18 read tools are always registered; the 34 write and
+53 tools in total. The 18 read tools are always registered; the 35 write and
 import tools are omitted when `MEALIE_READ_ONLY=true`.
 
 Every tool declares an `outputSchema` and answers with `structuredContent` beside
 the text block, so a client can use a result without parsing prose. Most carry
 `untrusted: true` and `source: "mealie"` as fields of that object — recipes are
-routinely scraped from arbitrary websites. The ten without the marker answer
+routinely scraped from arbitrary websites. The eleven without the marker answer
 with an id this server was given, or with `get_about`’s version and permission
 flags.
 
@@ -152,6 +152,16 @@ by it.
 | --- | --- | --- | --- |
 | `recipe` | string | yes | Recipe slug or UUID |
 | `timestamp` | string | yes | ISO 8601 date or date-time, e.g. `2026-08-18` or `2026-08-18T19:30:00Z` |
+
+### set_recipe_image
+
+Replaces a recipe's cover image.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `recipe` | string | yes | Recipe slug or UUID |
+| `image_base64` | string | yes | The image, base64-encoded, without a `data:` URI prefix |
+| `format` | string | yes | `jpeg`, `jpg`, `png` or `webp` — used for the upload filename, extension field and content type |
 
 ### delete_recipe 👤
 

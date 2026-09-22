@@ -25,6 +25,11 @@ import {
 import { assertPathSegment, query, type MealieApi } from '../api.js';
 import { DESTRUCTIVE, READ_ONLY, WRITE } from './annotations.js';
 import type { Config } from '../config.js';
+import {
+  decodeBase64,
+  IMAGE_MIME_TYPES,
+  MAX_IMAGE_BASE64_CHARS,
+} from '../media.js';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 import {
   resolveOrganizerIds,
@@ -648,6 +653,47 @@ export function registerRecipeWriteTools(
           name === undefined ? {} : { name }
         );
         return untrustedResult(recipeDetail(data, config.url));
+      })
+  );
+
+  server.registerTool(
+    'set_recipe_image',
+    {
+      title: 'Set recipe image',
+      description: "Replaces a recipe's cover image.",
+      inputSchema: z.object({
+        recipe: recipeRefParam,
+        image_base64: z
+          .string()
+          .min(1)
+          .max(MAX_IMAGE_BASE64_CHARS)
+          .describe('The image, base64-encoded, without a data: URI prefix'),
+        format: z
+          .enum(['jpeg', 'jpg', 'png', 'webp'])
+          .describe(
+            'Image format, used for the upload filename, extension field and content type'
+          ),
+      }),
+      annotations: WRITE,
+      outputSchema: plain({ recipe: z.string(), image_set: z.boolean() }),
+    },
+    async ({ recipe, image_base64, format }) =>
+      run(async () => {
+        const bytes = decodeBase64(image_base64, 'image_base64');
+        const ref = assertPathSegment(recipe, 'recipe');
+        const form = new FormData();
+        form.append(
+          'image',
+          new Blob([bytes as unknown as ArrayBuffer], {
+            type: IMAGE_MIME_TYPES[format],
+          }),
+          `recipe.${format}`
+        );
+        // Mealie's upload route wants the extension without a leading dot; jpg
+        // is the conventional spelling of it, not jpeg.
+        form.append('extension', format === 'jpeg' ? 'jpg' : format);
+        await api.put(`/api/recipes/${ref}/image`, form);
+        return jsonResult({ recipe: ref, image_set: true });
       })
   );
 

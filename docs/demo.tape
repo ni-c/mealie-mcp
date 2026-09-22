@@ -31,7 +31,7 @@ Show
 
 Type "# mealie-mcp — MCP server for the Mealie recipe manager" Enter
 Sleep 1s
-Type "# list the 52 tools it exposes" Enter
+Type "# list the 53 tools it exposes" Enter
 Sleep 500ms
 Type "npx -y @modelcontextprotocol/inspector --cli mealie-mcp -e MEALIE_URL=$MEALIE_URL -e MEALIE_API_TOKEN=$MEALIE_API_TOKEN --method tools/list | jq -r '.tools[].name' | head -14" Enter
 Sleep 7s
