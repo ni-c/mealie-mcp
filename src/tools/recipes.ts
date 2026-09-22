@@ -386,6 +386,23 @@ export function registerRecipeReadTools(
 }
 
 /**
+ * One preparation step in the object form of `instructions`.
+ *
+ * Mealie's `recipeInstructions` entries carry a `title` beside the `text`, and
+ * a step with its own heading — "Prep", "Bake" — had no way through this
+ * server while the field was a bare string. The string form stays, because it
+ * is what a caller writes when the step has no heading, and it maps to the
+ * same `{title: '', text}` this server always sent.
+ */
+const instructionStep = z.object({
+  title: z.string().trim().min(1).max(255).optional(),
+  text: z.string().trim().min(1).max(20_000),
+});
+
+/** A step once zod has parsed it, as {@link recipePatch} receives it. */
+type InstructionStep = z.infer<typeof instructionStep>;
+
+/**
  * The editable recipe fields, shared by `create_recipe` and `update_recipe`.
  *
  * `name` is not in here: it is required when creating and optional when
@@ -403,10 +420,15 @@ const recipeFields = {
         'unit references are wanted.'
     ),
   instructions: z
-    .array(z.string().trim().min(1).max(20_000))
+    .array(z.union([z.string().trim().min(1).max(20_000), instructionStep]))
     .max(100)
     .optional()
-    .describe('Preparation steps, in order. They replace the existing list.'),
+    .describe(
+      'Preparation steps, in order. They replace the existing list. Each ' +
+        'step is either plain text or an object {title, text} when the step ' +
+        'has its own heading (e.g. "Prep", "Bake"); a bare string is ' +
+        'equivalent to {text} with no title.'
+    ),
   tags: z
     .array(z.string().trim().min(1).max(255))
     .max(50)
@@ -740,7 +762,7 @@ export function recipePatch(fields: {
   name?: string | undefined;
   description?: string | undefined;
   ingredients?: string[] | undefined;
-  instructions?: string[] | undefined;
+  instructions?: (string | InstructionStep)[] | undefined;
   tags?: string[] | undefined;
   categories?: string[] | undefined;
   prep_time?: string | undefined;
@@ -764,10 +786,11 @@ export function recipePatch(fields: {
     }));
   }
   if (fields.instructions !== undefined) {
-    patch.recipeInstructions = fields.instructions.map((text) => ({
-      title: '',
-      text,
-    }));
+    patch.recipeInstructions = fields.instructions.map((step) =>
+      typeof step === 'string'
+        ? { title: '', text: step }
+        : { title: step.title ?? '', text: step.text }
+    );
   }
   // Tags and categories are deliberately absent here — they are objects that
   // must carry a slug, so they need a round trip to Mealie and are added by

@@ -90,7 +90,10 @@ describe('a recipe through its whole life', () => {
         name: 'Integration Bowl',
         description: 'A recipe created by the integration suite.',
         ingredients: ['500 g low-fat quark', '2 tbsp honey'],
-        instructions: ['Put the quark in a bowl.', 'Add the honey.'],
+        instructions: [
+          'Put the quark in a bowl.',
+          { title: 'Finish', text: 'Add the honey.' },
+        ],
         tags: ['integration', 'quick'],
         categories: ['Breakfast'],
         prep_time: '5',
@@ -101,7 +104,16 @@ describe('a recipe through its whole life', () => {
     );
     slug = created.slug;
 
-    await asking.call('get_recipe', { recipe: slug });
+    const fetched = parse<{
+      recipeInstructions: { title?: string; text: string }[];
+    }>(await asking.call('get_recipe', { recipe: slug }));
+    expect(
+      fetched.recipeInstructions.map(({ title, text }) => ({ title, text }))
+    ).toEqual([
+      { text: 'Put the quark in a bowl.' },
+      { title: 'Finish', text: 'Add the honey.' },
+    ]);
+
     await asking.call('get_recipe', { recipe: created.id });
     await asking.call('get_recipe', { recipe: slug, detail: 'raw' });
   });
