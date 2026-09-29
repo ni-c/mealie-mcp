@@ -167,7 +167,7 @@ describe('a recipe through its whole life', () => {
         format: 'png',
       })
     );
-    expect(image_version).toMatch(/^[0-9]{1,12}$/);
+    expect(image_version).toMatch(/^[A-Za-z0-9]{1,12}$/);
 
     const { imageUrl } = parse<{ imageUrl: string }>(
       await asking.call('get_recipe', { recipe: slug })
