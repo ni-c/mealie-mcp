@@ -148,7 +148,7 @@ export function imageUrl(
   recipe: Record<string, unknown>
 ): string | undefined {
   // Both halves are the instance's and both land in a URL the model may
-  // follow: the id has to be a UUID and the version a short number, or there
+  // follow: the id has to be a UUID and the version a short alphanumeric key, or there
   // is no image URL to build.
   const id = uuid(recipe.id);
   const version = imageVersion(recipe.image);
@@ -167,7 +167,10 @@ export function imageVersion(value: unknown): string | undefined {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
     return String(value);
   }
-  return typeof value === 'string' && /^[0-9]{1,12}$/.test(value)
+  // A number up to Mealie v3.25 (`randint(0, 255)`), a short alphanumeric
+  // cache key since v3.26 (`cache.new_key()`, four letters and digits). Both
+  // land in a query string, so nothing but letters and digits passes.
+  return typeof value === 'string' && /^[A-Za-z0-9]{1,12}$/.test(value)
     ? value
     : undefined;
 }

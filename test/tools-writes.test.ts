@@ -478,6 +478,24 @@ describe('recipe image writes', () => {
     });
   });
 
+  it('answers with the cache key Mealie v3.26 and later report', async () => {
+    mockFetch({ ...GENERIC, image: 'Qz7k' });
+    const { isError, text } = await callText(
+      await connect(),
+      'set_recipe_image',
+      {
+        recipe: 'quark-bowl',
+        image_base64: Buffer.from('bytes').toString('base64'),
+        format: 'png',
+      }
+    );
+    expect(isError).toBe(false);
+    expect(JSON.parse(text.slice(text.indexOf('{')))).toEqual({
+      recipe: 'quark-bowl',
+      image_version: 'Qz7k',
+    });
+  });
+
   it('refuses to claim success when Mealie reports no new version', async () => {
     // A reverse proxy or SSO portal answering a PUT with 200 and a login page
     // is the case this exists for: the status says fine, nothing was stored.

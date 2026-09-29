@@ -286,7 +286,9 @@ describe('text and image helpers stay honest', () => {
       fc.property(
         fc.uuid(),
         fc.oneof(
-          fc.string({ maxLength: 40 }).filter((s) => !/^[0-9]{1,12}$/.test(s)),
+          fc
+            .string({ maxLength: 40 })
+            .filter((s) => !/^[A-Za-z0-9]{1,12}$/.test(s)),
           fc.double({ noInteger: true }),
           fc.constant(-1),
           fc.constant({ toString: () => '1' })

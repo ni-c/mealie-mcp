@@ -3,7 +3,7 @@
 ## Requirements
 
 - Node.js ≥ 22
-- A running [Mealie](https://mealie.io) instance (verified against v3.25.0)
+- A running [Mealie](https://mealie.io) instance (verified against v3.28.0)
 - An API token from Mealie's **Settings → API Tokens** — see
   [Configuration](/guide/configuration)
 

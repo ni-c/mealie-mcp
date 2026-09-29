@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [Unreleased]
+
+### Fixed
+
+- `set_recipe_image` and the `imageUrl` of every recipe work again against Mealie
+  v3.26 and later. Mealie replaced the numeric image counter with a short
+  alphanumeric cache key, which the server refused as a version: an upload that
+  had been stored was reported as failed, and recipes came back without an
+  image URL. The integration suite now runs against Mealie v3.28.0.
+
 ## [0.5.0] - 2026-09-22
 
 ### Added
@@ -563,6 +573,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   addresses, because Mealie performs those fetches from inside its own network.
 - All instance content is returned behind an explicit untrusted-content marker.
 
+[Unreleased]: https://github.com/ni-c/mealie-mcp/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ni-c/mealie-mcp/releases/tag/v0.3.0

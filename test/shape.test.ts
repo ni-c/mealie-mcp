@@ -140,6 +140,20 @@ describe('imageUrl', () => {
     );
   });
 
+  it('takes the alphanumeric cache key Mealie v3.26 and later report', () => {
+    // v3.26 replaced the numeric counter with `cache.new_key()`: four letters
+    // and digits, mixed case.
+    expect(imageUrl('https://x', { ...RECIPE, image: 'aB3x' })).toBe(
+      'https://x/api/media/recipes/592cf12b-700c-4e4b-ba98-4ea114ee1e5a/images/original.webp?version=aB3x'
+    );
+  });
+
+  it('refuses a version that is empty, too long or not alphanumeric', () => {
+    for (const image of ['', 'a'.repeat(13), 'aB3x&x=1', '../x', 'a b', 'ä1']) {
+      expect(imageUrl('https://x', { ...RECIPE, image })).toBeUndefined();
+    }
+  });
+
   it('is undefined without an image, an id or a base URL', () => {
     expect(imageUrl('https://x', { ...RECIPE, image: null })).toBeUndefined();
     expect(imageUrl('https://x', { image: '1' })).toBeUndefined();
