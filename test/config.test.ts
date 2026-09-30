@@ -316,29 +316,29 @@ describe('missingConfigMessage', () => {
   });
 });
 
-describe('MEALIE_API_TOKEN has a shape, and its shape is all that is said about it', () => {
-  // undici refuses a header value with a control character in it by quoting
-  // the whole value in its error — for the Authorization header, the whole
-  // value is the token — and that error used to reach the model. The shape is
-  // checked here, where the message can say so without the value.
-  function exitsOn(token: string): string[] {
-    const log = silence();
-    vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exited');
-    }) as never);
-    expect(() =>
-      loadConfig(
-        env({
-          MEALIE_URL: 'https://mealie.example.com',
-          MEALIE_API_TOKEN: token,
-        })
-      )
-    ).toThrow('exited');
-    const lines = log.mock.calls.map(([m]) => String(m));
-    vi.restoreAllMocks();
-    return lines;
-  }
+// undici refuses a header value with a control character in it by quoting
+// the whole value in its error — for the Authorization header, the whole
+// value is the token — and that error used to reach the model. The shape is
+// checked here, where the message can say so without the value.
+function exitsOn(token: string): string[] {
+  const log = silence();
+  vi.spyOn(process, 'exit').mockImplementation((() => {
+    throw new Error('exited');
+  }) as never);
+  expect(() =>
+    loadConfig(
+      env({
+        MEALIE_URL: 'https://mealie.example.com',
+        MEALIE_API_TOKEN: token,
+      })
+    )
+  ).toThrow('exited');
+  const lines = log.mock.calls.map(([m]) => String(m));
+  vi.restoreAllMocks();
+  return lines;
+}
 
+describe('MEALIE_API_TOKEN has a shape, and its shape is all that is said about it', () => {
   it('refuses a token with a line break, a NUL or a space inside', () => {
     const secret = `eyJ${'a'.repeat(60)}`;
     for (const token of [
