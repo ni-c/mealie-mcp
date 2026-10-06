@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [Unreleased]
+
+### Fixed
+
+- A `__proto__` key in a Mealie response is dropped at every depth. The server
+  kept it as an own property, but the client parses `structuredContent` against
+  the output schema, which lost that one key, so the two channels of one answer
+  could disagree. Both now omit it.
+
 ## [0.5.1] - 2026-09-29
 
 ### Fixed

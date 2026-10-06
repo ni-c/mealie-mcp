@@ -144,11 +144,11 @@ const MAX_DEPTH = 32;
  * A copy of `value` with every string cleaned and every secret-shaped field
  * redacted, at any depth.
  *
- * Objects are rebuilt with `Object.fromEntries`, which defines every key as an
- * own property — `out[key] = …` with a key of `__proto__` would set the
- * prototype and drop the field instead. Past {@link MAX_DEPTH} the value is
- * replaced by a sentence rather than copied, so a pathological nesting cannot
- * exhaust the stack.
+ * A key named `__proto__` is dropped at every depth: the structured half is
+ * parsed by zod, which would lose it there alone. Objects are rebuilt with
+ * `Object.fromEntries` so no other key can touch the prototype. Past
+ * {@link MAX_DEPTH} the value is replaced by a sentence rather than copied, so
+ * a pathological nesting cannot exhaust the stack.
  */
 export function cleanDeep(value: unknown, maxString: number): unknown {
   return walk(value, maxString, 0);
@@ -167,12 +167,20 @@ function walk(value: unknown, maxString: number, depth: number): unknown {
   if (Array.isArray(value)) {
     return value.map((entry) => walk(entry, maxString, depth + 1));
   }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-      cleanText(key, 200),
+  const out: [string, unknown][] = [];
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const name = cleanText(key, 200);
+    // Dropped, checked on the cleaned name so a control character inside it
+    // cannot smuggle it past. zod builds the structured half by assignment,
+    // where this name sets a prototype and vanishes, so a kept key would leave
+    // the two channels of one answer disagreeing.
+    if (name === '__proto__') continue;
+    out.push([
+      name,
       isSecretKey(key) && entry !== null && entry !== undefined
         ? REDACTED
         : walk(entry, maxString, depth + 1),
-    ])
-  );
+    ]);
+  }
+  return Object.fromEntries(out);
 }

@@ -201,14 +201,23 @@ describe('cleanDeep', () => {
     expect(out.calories).toContain('(truncated at 20000 characters)');
   });
 
-  it('keeps a __proto__ key as an own property and cleans the key itself', () => {
+  it('drops a __proto__ key at every depth and nothing else', () => {
     const parsed = JSON.parse(
-      `{"__proto__": "x", "a${'\\u001b'}b": 1}`
+      `{"__proto__": {"x": 1}, "a${'\\u001b'}b": 1, "__pro${'\\u0000'}to__": 2,
+        "list": [{"__proto__": "x", "keep": 3}], "nest": {"__proto__": 4, "ok": 5},
+        "nil": {"__proto__": null}}`
     ) as Record<string, unknown>;
     const out = cleanDeep(parsed, 100) as Record<string, unknown>;
-    expect(Object.hasOwn(out, '__proto__')).toBe(true);
+    expect(Object.hasOwn(out, '__proto__')).toBe(false);
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
-    expect(Object.hasOwn(out, 'ab')).toBe(true);
+    expect(out).toEqual({
+      ab: 1,
+      list: [{ keep: 3 }],
+      nest: { ok: 5 },
+      nil: {},
+    });
+    expect(Object.getPrototypeOf(out.nil)).toBe(Object.prototype);
+    expect(JSON.stringify(out)).not.toContain('__proto__');
   });
 
   it('stops at a depth no recipe has', () => {

@@ -91,7 +91,6 @@ const record = fc.record(
     truncated: leaf,
     untrusted: leaf,
     source: leaf,
-    __proto__: leaf,
     version: leaf,
     group: leaf,
     username: leaf,
@@ -99,9 +98,24 @@ const record = fc.record(
   { requiredKeys: [] }
 );
 
+/**
+ * A record that also carries a real own `__proto__` key, the way a parsed JSON
+ * body can. An object literal's `__proto__:` sets a prototype instead.
+ */
+const protoRecord = fc.tuple(record, leaf).map(([rec, value]) =>
+  Object.defineProperty({ ...rec }, '__proto__', {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  })
+);
+
 const body = fc.oneof(
   fc.jsonValue({ maxDepth: 3 }),
   record,
+  protoRecord,
+  fc.array(protoRecord, { maxLength: 3 }),
   fc.record({
     items: fc.array(record, { maxLength: 4 }),
     page: leaf,
