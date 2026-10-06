@@ -1268,3 +1268,28 @@ describe('import tools', () => {
     expect(file.type).toBe('image/png');
   });
 });
+
+describe('a __proto__ key from the instance', () => {
+  it('answers the same in both channels', async () => {
+    mockFetch(
+      JSON.parse(
+        '{"__proto__": {"a": 1}, "parsed": [{"__proto__": "x", "ok": 1}], "__pro\\u0000to__": 2}'
+      )
+    );
+    const client = await connect();
+    const result = await client.callTool({
+      name: 'parse_ingredients',
+      arguments: { ingredients: ['2 tbsp olive oil'] },
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { text: string }[])
+      .map((c) => c.text)
+      .join('\n');
+    expect(text).not.toContain('__proto__');
+    const json = text.slice(text.indexOf('{'));
+    expect(JSON.parse(json)).toEqual(
+      JSON.parse(JSON.stringify(result.structuredContent))
+    );
+    expect(JSON.stringify(result.structuredContent)).toContain('"ok":1');
+  });
+});
