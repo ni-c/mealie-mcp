@@ -21,6 +21,12 @@ const SCALLION = {
   name: 'spring onion',
   aliases: [{ name: 'scallion' }],
 };
+/** Lists "egg" as an alias, and comes first in Mealie's answer. */
+const HENS_EGG = {
+  id: 'aaaaaaaa-0000-4000-8000-000000000005',
+  name: "hen's egg",
+  aliases: [{ name: 'egg' }],
+};
 const TBSP = {
   id: 'bbbbbbbb-0000-4000-8000-000000000001',
   name: 'tablespoon',
@@ -380,7 +386,7 @@ function fakeMealie(
     failingId?: string;
   } = {}
 ) {
-  const foods = [OIL, SALT, EGG, SCALLION];
+  const foods = [HENS_EGG, OIL, SALT, EGG, SCALLION];
   const units = [TBSP, GRAM];
   const recipe = {
     id: RECIPE_ID,
@@ -479,6 +485,18 @@ describe('structured ingredients through the tools', () => {
           note: '',
         },
       ],
+    });
+  });
+
+  it('prefers a food named so over one that only lists it as an alias', async () => {
+    const spy = fakeMealie();
+    await callText(await connect(), 'create_recipe', {
+      name: 'Quark Bowl',
+      ingredients: [{ quantity: 1, food: 'egg' }],
+    });
+    const patch = callsOf(spy).find((call) => call.method === 'PATCH');
+    expect(patch!.body).toMatchObject({
+      recipeIngredient: [{ food: { id: EGG.id, name: 'egg' } }],
     });
   });
 
@@ -783,6 +801,19 @@ describe('parse_recipe_ingredients', () => {
     expect(isError).toBe(false);
     expect(text).toContain('Nothing to parse');
     expect(client.prompts).toEqual([]);
+    expect(callsOf(spy).every((call) => call.method === 'GET')).toBe(true);
+  });
+
+  it('has nothing to parse in a recipe without ingredients', async () => {
+    const spy = fakeMealie({ recipeIngredient: [] });
+    const { isError, text } = await callText(
+      await connect(),
+      'parse_recipe_ingredients',
+      { recipe: 'quark-bowl', dry_run: false }
+    );
+    expect(isError).toBe(false);
+    expect(text).toContain('"lines": 0');
+    expect(text).toContain('Nothing to parse');
     expect(callsOf(spy).every((call) => call.method === 'GET')).toBe(true);
   });
 
