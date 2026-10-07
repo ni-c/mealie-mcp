@@ -25,9 +25,18 @@ export async function resolveRecipe(
   api: MealieApi,
   ref: string
 ): Promise<RecipeRef> {
-  const data = await api.get(
-    `/api/recipes/${assertPathSegment(ref, 'recipe reference')}`
+  return recipeRefOf(
+    await api.get(`/api/recipes/${assertPathSegment(ref, 'recipe reference')}`),
+    ref
   );
+}
+
+/**
+ * Both identifiers out of a recipe Mealie returned, validated the way
+ * {@link resolveRecipe} describes — for a caller that needs the rest of the
+ * recipe as well and has fetched it already.
+ */
+export function recipeRefOf(data: unknown, ref: string): RecipeRef {
   const record = rec(data);
   const id =
     typeof record.id === 'string' && UUID_SHAPE.test(record.id)
@@ -61,7 +70,9 @@ class LookupBudget {
   private readonly startedAt = Date.now();
   constructor(
     private readonly total: number,
-    private readonly what: string
+    private readonly what: string,
+    private readonly advice = 'Pass fewer names, or use ids from ' +
+      'list_organizers, which need no lookup.'
   ) {}
 
   /** Throws once the budget is spent, naming how far the call got. */
@@ -69,8 +80,7 @@ class LookupBudget {
     if (Date.now() - this.startedAt < LOOKUP_BUDGET_MS) return;
     throw new ToolInputError(
       `stopped after ${done} of ${this.total} ${this.what} lookups within ` +
-        `${LOOKUP_BUDGET_MS / 1000} s: Mealie is answering slowly. Pass fewer ` +
-        'names, or use ids from list_organizers, which need no lookup.'
+        `${LOOKUP_BUDGET_MS / 1000} s: Mealie is answering slowly. ${this.advice}`
     );
   }
 }
@@ -261,6 +271,146 @@ async function findOrganizer(
         candidate.trim().toLowerCase() === wantedLowercase
     );
   }) as Record<string, unknown> | undefined;
+}
+
+/** A food or a unit the way an ingredient line has to reference it. */
+export interface VocabularyRef {
+  id: string;
+  name: string;
+}
+
+/** Where the two ingredient vocabularies live. */
+const VOCABULARY_PATHS = { food: '/api/foods', unit: '/api/units' } as const;
+
+export type VocabularyKind = keyof typeof VOCABULARY_PATHS;
+
+/**
+ * The fields a caller's word is compared against, best match first.
+ *
+ * Mealie's own search is fuzzy — `search=olive oils` ranks "green olive" above
+ * "olive oil" — so it only narrows the candidates, and the decision is an exact
+ * comparison here. Units are matched on their abbreviations as well, because
+ * "tbsp" is what a recipe says.
+ */
+const VOCABULARY_FIELDS: Record<VocabularyKind, readonly string[]> = {
+  food: ['name', 'pluralName'],
+  unit: ['name', 'pluralName', 'abbreviation', 'pluralAbbreviation'],
+};
+
+/**
+ * Turns food or unit names — or UUIDs — into the `{id, name}` pair an
+ * ingredient line carries.
+ *
+ * Nothing unknown is created, unlike {@link resolveOrganizers}. A duplicate tag
+ * is a nuisance; a duplicate food splits the shopping list, the pantry and the
+ * suggestions in two, and cleaning those up is what a person usually came to
+ * do. And nothing unknown is passed on either, because Mealie fails in both
+ * directions without saying so (measured on v3.28.0):
+ *
+ *   food {name: "quark"}               -> HTTP 500, ValueError
+ *   food {id: <unknown UUID>, name: …} -> HTTP 200, stored as no food at all
+ *
+ * So a UUID is looked up as well, and every value that matches nothing is
+ * collected and reported in one error — the caller can then ask once, not once
+ * per line.
+ *
+ * Returns a map keyed by the trimmed value as given.
+ */
+export async function resolveVocabulary(
+  api: MealieApi,
+  kind: VocabularyKind,
+  values: readonly string[]
+): Promise<Map<string, VocabularyRef>> {
+  const path = VOCABULARY_PATHS[kind];
+  const distinct = [...new Set(values.map((value) => value.trim()))];
+  const resolved = new Map<string, VocabularyRef>();
+  const unknown: string[] = [];
+  const budget = new LookupBudget(
+    distinct.length,
+    kind,
+    'Pass fewer distinct names in one call.'
+  );
+
+  for (const value of distinct) {
+    budget.check(resolved.size + unknown.length);
+    const found = UUID_SHAPE.test(value)
+      ? await vocabularyById(api, path, value)
+      : await findVocabulary(api, kind, value);
+    if (found === undefined) unknown.push(value);
+    else resolved.set(value, found);
+  }
+
+  if (unknown.length > 0) {
+    const shown = unknown
+      .slice(0, 20)
+      .map((value) => `"${value.slice(0, 100)}"`)
+      .join(', ');
+    const more = unknown.length > 20 ? ` and ${unknown.length - 20} more` : '';
+    throw new ToolInputError(
+      `No ${kind} in this Mealie matches ${shown}${more}. Nothing was written. ` +
+        `Ask the user whether to create ${unknown.length === 1 ? 'it' : 'them'} ` +
+        `with create_${kind} or which existing ${kind} from list_${kind}s was ` +
+        'meant — unknown foods and units are not created automatically.'
+    );
+  }
+  return resolved;
+}
+
+/** A vocabulary record as a reference, if it has the two fields one needs. */
+function vocabularyRef(value: unknown): VocabularyRef | undefined {
+  const record = rec(value);
+  return typeof record.id === 'string' &&
+    UUID_SHAPE.test(record.id) &&
+    typeof record.name === 'string'
+    ? { id: record.id, name: record.name }
+    : undefined;
+}
+
+async function vocabularyById(
+  api: MealieApi,
+  path: string,
+  id: string
+): Promise<VocabularyRef | undefined> {
+  try {
+    const found = vocabularyRef(
+      await api.get(`${path}/${assertPathSegment(id, 'id')}`)
+    );
+    // The id Mealie answered with has to be the one that was asked for: a
+    // record under a different id is not a confirmation that this one exists.
+    return found?.id.toLowerCase() === id.toLowerCase() ? found : undefined;
+  } catch (error) {
+    if (error instanceof MealieApiError && error.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function findVocabulary(
+  api: MealieApi,
+  kind: VocabularyKind,
+  wanted: string
+): Promise<VocabularyRef | undefined> {
+  const wantedLowercase = wanted.toLowerCase();
+  const data = await api.get(
+    `${VOCABULARY_PATHS[kind]}${query({ search: wanted, perPage: 100 })}`
+  );
+  const records = listFrom(data).map(rec);
+  const matches = (candidate: unknown) =>
+    typeof candidate === 'string' &&
+    candidate.trim().toLowerCase() === wantedLowercase;
+  // Field by field rather than record by record, so a food *named* "egg" wins
+  // over another one that merely lists "egg" as an alias.
+  for (const field of VOCABULARY_FIELDS[kind]) {
+    const hit = records.find((record) => matches(record[field]));
+    if (hit !== undefined) return vocabularyRef(hit);
+  }
+  const byAlias = records.find((record) =>
+    Array.isArray(record.aliases)
+      ? record.aliases.some((alias) => matches(rec(alias).name))
+      : false
+  );
+  return byAlias === undefined ? undefined : vocabularyRef(byAlias);
 }
 
 /**

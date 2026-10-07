@@ -46,6 +46,7 @@ let foodA: string;
 let foodB: string;
 let unitA: string;
 let unitB: string;
+let parseSlug: string;
 
 function parse<T>(text: string): T {
   const start = text.indexOf('{');
@@ -255,6 +256,101 @@ describe('organizers, foods and units', () => {
     unitB = parse<{ id: string }>(
       await asking.call('create_unit', { name: 'Integration Spoon Duplicate' })
     ).id;
+  });
+});
+
+describe('ingredients in structured form', () => {
+  // Runs on the food and unit created just above, before the merge further
+  // down rewrites them. Mealie's parser decides on its own which of its foods a
+  // line means, so nothing here depends on how it reads a particular line:
+  // the line that has to be written is settled by an override — food *and*
+  // unit, because this instance has no seeded units and the parser's "pinch"
+  // is not one of them, which holds the line back on its own.
+  it('writes structured lines and refuses a food that does not exist', async () => {
+    const created = parse<{
+      slug: string;
+      recipeIngredient: { food?: string; unit?: string; quantity?: number }[];
+    }>(
+      await asking.call('create_recipe', {
+        name: 'Integration Parse Bowl',
+        ingredients: [
+          '1 pinch of unobtainium',
+          {
+            quantity: 2,
+            unit: 'isp',
+            food: 'integration quark',
+            note: 'heaped',
+          },
+        ],
+      })
+    );
+    parseSlug = created.slug;
+    expect(created.recipeIngredient[1]).toMatchObject({
+      quantity: 2,
+      unit: 'Integration Spoon',
+      food: 'Integration Quark',
+      note: 'heaped',
+    });
+
+    const refused = await asking.call(
+      'update_recipe',
+      { recipe: parseSlug, ingredients: [{ food: 'Integration Unobtainium' }] },
+      { expectError: true }
+    );
+    expect(refused).toContain('No food in this Mealie matches');
+  });
+
+  it('finds the recipe among the unparsed ones', async () => {
+    const found = parse<{ recipes: { slug: string }[] }>(
+      await asking.call('search_recipes', {
+        unparsed_only: true,
+        per_page: 100,
+      })
+    );
+    expect(found.recipes.map((recipe) => recipe.slug)).toContain(parseSlug);
+  });
+
+  it('parses a recipe in place, with a dry run first', async () => {
+    const dry = parse<{
+      written: boolean;
+      unparsed: number;
+      needs_decision: { index: number }[];
+      structured: { index: number }[];
+    }>(await asking.call('parse_recipe_ingredients', { recipe: parseSlug }));
+    expect(dry.written).toBe(false);
+    // The structured line is not sent to the parser again.
+    expect(dry.unparsed).toBe(1);
+    expect(
+      [...dry.needs_decision, ...dry.structured].map((line) => line.index)
+    ).toEqual([0]);
+
+    await plainPrompt('parse_recipe_ingredients', {
+      recipe: parseSlug,
+      dry_run: false,
+      overrides: [{ index: 0, food: foodA, unit: unitA }],
+    });
+
+    const done = parse<{ written: boolean }>(
+      await asking.call('parse_recipe_ingredients', {
+        recipe: parseSlug,
+        dry_run: false,
+        overrides: [{ index: 0, food: foodA, unit: unitA }],
+      })
+    );
+    expect(done.written).toBe(true);
+
+    const raw = parse<{
+      recipeIngredient: {
+        food: { id: string } | null;
+        unit: { id: string } | null;
+        originalText: string | null;
+      }[];
+    }>(await asking.call('get_recipe', { recipe: parseSlug, detail: 'raw' }));
+    expect(raw.recipeIngredient[0]!.food?.id).toBe(foodA);
+    expect(raw.recipeIngredient[0]!.unit?.id).toBe(unitA);
+    expect(raw.recipeIngredient[0]!.originalText).toBe(
+      '1 pinch of unobtainium'
+    );
   });
 });
 
@@ -617,6 +713,7 @@ describe('cleaning up', () => {
     await asking.call('delete_cookbook', { cookbook_id: cookbookId });
     await asking.call('delete_shopping_list', { list_id: listId });
     await asking.call('delete_recipe', { recipe: slug });
+    await asking.call('delete_recipe', { recipe: parseSlug });
   });
 });
 

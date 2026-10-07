@@ -5,6 +5,7 @@ import {
   callText,
   confirmed,
   connect,
+  GENERIC,
   mockFetch,
   tokenOf,
 } from './harness.js';
@@ -50,6 +51,7 @@ const DESTRUCTIVE_CALLS: Record<string, Record<string, unknown>> = {
   delete_shopping_list_items: { item_ids: [TARGET_ID] },
   merge_foods: { from_id: TARGET_ID, to_id: OTHER_ID },
   merge_units: { from_id: TARGET_ID, to_id: OTHER_ID },
+  parse_recipe_ingredients: { recipe: 'quark-bowl', dry_run: false },
   update_mealplan_entry: { entry_id: 7, title: 'Replaced' },
   update_organizer: { kind: 'tag', id: TARGET_ID, name: 'Replaced' },
   update_recipe: { recipe: 'quark-bowl', instructions: [] },
@@ -57,6 +59,21 @@ const DESTRUCTIVE_CALLS: Record<string, Record<string, unknown>> = {
     list_id: LIST_ID,
     item_ids: [TARGET_ID],
     note: 'Replaced',
+  },
+};
+
+/**
+ * What the API answers for a tool whose destructive path needs more than the
+ * generic body to be reached at all.
+ *
+ * `parse_recipe_ingredients` returns early on a recipe with nothing to parse —
+ * correctly, there is nothing to ask about — so its call here reads a recipe
+ * with one unparsed line.
+ */
+const FIXTURES: Record<string, unknown> = {
+  parse_recipe_ingredients: {
+    ...GENERIC,
+    recipeIngredient: [{ note: '2 tbsp olive oil', quantity: 0 }],
   },
 };
 
@@ -99,7 +116,7 @@ describe('the destructive line and the guard follow each other', () => {
     // how the resource key is built — but nothing may be *changed* until
     // somebody has answered.
     for (const [name, args] of Object.entries(DESTRUCTIVE_CALLS)) {
-      const spy = mockFetch();
+      const spy = mockFetch(FIXTURES[name] ?? GENERIC);
       const client = await connect();
       const { text, isError } = await callText(client, name, args);
       const written = callsOf(spy).filter((call) => call.method !== 'GET');
@@ -119,7 +136,7 @@ describe('the destructive line and the guard follow each other', () => {
     // The other path: a client that declared elicitation is asked, and the
     // prompt has to name a consequence rather than just the operation.
     for (const [name, args] of Object.entries(DESTRUCTIVE_CALLS)) {
-      mockFetch();
+      mockFetch(FIXTURES[name] ?? GENERIC);
       const client = await connect({}, 'accept');
       await callText(client, name, args);
       expect(client.prompts, name).toHaveLength(1);
@@ -130,7 +147,7 @@ describe('the destructive line and the guard follow each other', () => {
 
   it('does nothing at all when the person says no', async () => {
     for (const [name, args] of Object.entries(DESTRUCTIVE_CALLS)) {
-      const spy = mockFetch();
+      const spy = mockFetch(FIXTURES[name] ?? GENERIC);
       const client = await connect({}, 'decline');
       const { isError } = await callText(client, name, args);
       expect(isError, name).toBe(true);
