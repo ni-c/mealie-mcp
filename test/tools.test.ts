@@ -19,7 +19,7 @@ afterEach(() => {
 describe('tool registration', () => {
   it('registers every tool by default', async () => {
     const { tools } = await (await connect()).listTools();
-    expect(tools).toHaveLength(53);
+    expect(tools).toHaveLength(54);
   });
 
   it('registers only read tools in read-only mode', async () => {
@@ -62,7 +62,7 @@ describe('tool registration', () => {
   it('lists its tools without credentials but fails every call', async () => {
     // Registries and sandbox inspectors have to be able to enumerate the tools.
     const client = await connect({ url: undefined, token: undefined });
-    expect((await client.listTools()).tools).toHaveLength(53);
+    expect((await client.listTools()).tools).toHaveLength(54);
     const { text, isError } = await callText(client, 'get_about');
     expect(isError).toBe(true);
     expect(text).toContain('MEALIE_URL');

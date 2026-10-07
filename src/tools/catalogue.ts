@@ -65,6 +65,7 @@ export const WRITE_TOOLS = [
   'import_recipe_from_url',
   'merge_foods',
   'merge_units',
+  'parse_recipe_ingredients',
   'remove_recipe_from_shopping_list',
   'set_recipe_image',
   'set_recipe_last_made',
@@ -81,7 +82,7 @@ export const ALL_TOOLS: readonly string[] = [...READ_TOOLS, ...WRITE_TOOLS];
 /**
  * What `MEALIE_ALLOW_TOOLS=essential` selects: find a recipe, get it in, plan and shop.
  *
- * 8 of 53. Left out on purpose: the sixteen-tool foods/units/organizers/cookbooks taxonomy, sharing
+ * 8 of 54. Left out on purpose: the sixteen-tool foods/units/organizers/cookbooks taxonomy, sharing
  * tokens, comments and ratings, and every delete.
  */
 export const ESSENTIAL_TOOLS: readonly string[] = [

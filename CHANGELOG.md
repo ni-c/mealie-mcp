@@ -14,7 +14,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `create_recipe` and `update_recipe` accept structured ingredient lines:
+  `{quantity, unit, food, note, title, original_text}`, with unit and food given
+  by name, plural, abbreviation, alias or UUID. Until now every line was stored
+  as free text, which Mealie shows as "not parsed yet", and no tool could write
+  quantity, unit and food back. An unknown food or unit is an error naming all
+  of them at once, before anything is asked or written; it is not created,
+  because Mealie answers a food without an id with HTTP 500 and silently stores
+  one with an unknown id as no food at all.
+- `parse_recipe_ingredients` structures a recipe's unparsed lines in place. It
+  runs Mealie's parser, writes the lines whose food and unit exist and whose
+  confidence reaches `min_confidence`, and returns the rest under
+  `needs_decision` with the reason, so the user can create the food or choose an
+  existing one through `overrides`. Lines that are already structured are left
+  alone, a written line keeps its `referenceId` and its wording in
+  `originalText`, and the tool runs as a dry run unless `dry_run` is `false`.
+  Writing asks first.
+- `search_recipes` takes `unparsed_only`, which narrows the result to recipes
+  with at least one ingredient line that has no food — the list to work through
+  with `parse_recipe_ingredients`.
+
 ### Fixed
+
+- The `ingredients` description of `create_recipe` and `update_recipe` told the
+  model to run `parse_ingredients` first "if structured food and unit references
+  are wanted". No tool could store what that returned, so following the advice
+  led nowhere.
 
 - A `__proto__` key in a Mealie response is dropped at every depth. The server
   kept it as an own property, but the client parses `structuredContent` against

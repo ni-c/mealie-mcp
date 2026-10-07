@@ -25,7 +25,7 @@ those plans, and record what was actually cooked.
 
 Fifty-three tools is the ceiling, not the floor: `MEALIE_ALLOW_TOOLS=essential`
 registers a curated eight instead, and a model picks the right tool far more
-reliably from eight than from fifty-three — see
+reliably from eight than from fifty-four — see
 [choosing which tools load](#choosing-which-tools-load).
 
 ![Demo](https://mealie-mcp.ni-c.de/demo.gif)
@@ -40,7 +40,7 @@ reliably from eight than from fifty-three — see
   <img src="https://mealie-mcp.ni-c.de/architecture.svg" alt="An MCP client speaks stdio to mealie-mcp, which calls the Mealie REST API over HTTPS; Mealie fetches recipe websites server-side, which is why the URL guard refuses its own loopback and link-local range" width="800">
 </picture>
 
-Mealie's REST API has 259 operations across 175 paths. This server exposes **53
+Mealie's REST API has 259 operations across 175 paths. This server exposes **54
 tools**, chosen so that the common tasks are one call and the dangerous surface is
 not reachable at all. Verified against **Mealie v3.28.0**; the source of truth for
 every request shape is the `GET /openapi.json` of a running instance, not the
@@ -215,7 +215,7 @@ result against its schema before it goes out — a strict shape would turn a fie
 a release adds into a tool that fails outright.
 
 **Recipes** — `search_recipes`, `get_recipe`, `suggest_recipes`, `create_recipe`,
-`update_recipe`, `duplicate_recipe`, `set_recipe_image`, `set_recipe_last_made`,
+`update_recipe`, `parse_recipe_ingredients`, `duplicate_recipe`, `set_recipe_image`, `set_recipe_last_made`,
 `delete_recipe` 🔒
 
 **Import** — `preview_recipe_url` (dry run, saves nothing), `import_recipe_from_url`,

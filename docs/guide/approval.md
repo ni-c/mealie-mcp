@@ -1,6 +1,6 @@
 # Asking a person
 
-Sixteen tools **ask a person first**. They replace or remove something Mealie
+Seventeen tools **ask a person first**. They replace or remove something Mealie
 keeps no history of, or they change who can see a recipe.
 
 Not a `confirm: true` argument the model can set. Not a token the model reads out
@@ -24,6 +24,7 @@ answer comes back, nothing happens.
 | `delete_mealplan_entry` · `delete_organizer` | always |
 | `delete_shopping_list` · `delete_shopping_list_items` | always |
 | `update_recipe` · `update_organizer` | when it replaces written content |
+| `parse_recipe_ingredients` | when it writes (`dry_run: false`) |
 | `update_mealplan_entry` · `update_shopping_list_items` | when it replaces written content |
 | `merge_foods` · `merge_units` | always, bound to the **direction** |
 | `create_cookbook` | always |
@@ -43,7 +44,7 @@ sent the old one simply finds a dead link, and this server cannot tell whom that
 was. Its description used to say in so many words that it needed no
 confirmation.
 
-Two of the sixteen destroy nothing at all, and that is the point of having a
+Two of the seventeen destroy nothing at all, and that is the point of having a
 dialog rather than only an annotation:
 
 - `create_share_token` widens who can see the data, and unlike a deletion the
