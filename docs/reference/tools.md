@@ -1,6 +1,6 @@
 # Tools
 
-All fifty-three are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
+All fifty-four are registered unless you say otherwise. `MEALIE_ALLOW_TOOLS` and
 `MEALIE_DENY_TOOLS` narrow the list to the ones you want, and `essential` selects a
 curated eight — see
 [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
@@ -8,7 +8,7 @@ curated eight — see
 One section per tool: what it does, its parameters, and — for the guarded ones —
 what a person is asked.
 
-53 tools in total. The 18 read tools are always registered; the 35 write and
+54 tools in total. The 18 read tools are always registered; the 36 write and
 import tools are omitted when `MEALIE_READ_ONLY=true`.
 
 Every tool declares an `outputSchema` and answers with `structuredContent` beside
@@ -63,6 +63,7 @@ the matching `require_all_*` flag is set.
 | `require_all_categories` | boolean | no | Same, for categories |
 | `require_all_tools` | boolean | no | Same, for tools |
 | `require_all_foods` | boolean | no | Same, for foods |
+| `unparsed_only` | boolean | no | Only recipes with at least one ingredient line that has no food yet — the ones Mealie flags as not parsed. Recipes without ingredients count as well |
 | `order_by` | enum | no | `name` \| `rating` \| `created_at` \| `updated_at` \| `last_made` \| `random`; default `created_at` |
 | `order_direction` | enum | no | `asc` \| `desc`, default `desc` |
 | `page` | number | no | 1-based page number, default 1 |
@@ -107,7 +108,7 @@ Creates a recipe from the given fields. To add one from a website use
 | --- | --- | --- | --- |
 | `name` | string | yes | Recipe name. Mealie derives the slug from it and rejects a duplicate |
 | `description` | string | no | Recipe description |
-| `ingredients` | string[] | no | Ingredient lines as free text, e.g. `"500 g quark"`. They replace the existing list; use `parse_ingredients` first if structured food and unit references are wanted |
+| `ingredients` | (string \| { quantity?, unit?, food?, note?, title?, original_text? })[] | no | Ingredient lines. They replace the existing list. A plain string (`"500 g quark"`) is stored as free text, which Mealie shows as not parsed; an object is stored structured, with `unit` and `food` given by name, plural, abbreviation, alias or UUID. An unknown food or unit is an error — create it with `create_food` / `create_unit` first. To structure the existing lines of a recipe in place, use `parse_recipe_ingredients` |
 | `instructions` | string[] \| { title?, text }[] | no | Preparation steps, in order. They replace the existing list. A step is either plain text or `{ title, text }` when it carries its own heading |
 | `tags` | string[] | no | Tag names. They replace the existing tags; unknown names are created |
 | `categories` | string[] | no | Category names. They replace the existing categories |
@@ -132,6 +133,36 @@ exposed.
 | `recipe` | string | yes | Recipe slug or UUID |
 | `name` | string | no | New recipe name |
 | …same optional fields as `create_recipe` | | | `description`, `ingredients`, `instructions`, `tags`, `categories`, `prep_time`, `cook_time`, `total_time`, `servings`, `recipe_yield`, `notes`, `source_url` |
+
+### parse_recipe_ingredients 👤
+
+Structures a recipe's unparsed ingredient lines in place. Mealie's parser splits
+each line into quantity, unit, food and note; a line is written when its food
+exists in Mealie, its unit exists or is absent, and the parser's average
+confidence reaches `min_confidence`. Lines that already have a food, a unit or
+a quantity are left alone. Everything else comes back under `needs_decision`
+with the reason and the parser's suggestion — the place to ask the user whether
+to create the food (`create_food`, then run again) or to use an existing one
+(`overrides`). Unknown foods and units are never created by this tool.
+
+It runs as a dry run unless `dry_run` is `false`. A written line keeps its
+`referenceId` (the link to the steps) and its section title, and keeps the line
+as written in `originalText`. To work through a whole collection, page through
+`search_recipes` with `unparsed_only: true`.
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `recipe` | string | yes | Recipe slug or UUID |
+| `parser` | enum | no | `nlp` (default) uses the trained model and reports a real confidence. `brute` is rule-based and reports 1.0 for whatever it splits. Mealie's `openai` parser is not exposed — it sends every line to an external provider |
+| `min_confidence` | number | no | Lowest average parser confidence written without a decision, 0–1, default 0.9 |
+| `overrides` | { index, food?, unit? }[] | no | The user's answers for lines from `needs_decision`: an existing food or unit by name or UUID. The parser's quantity and note are kept |
+| `dry_run` | boolean | no | Default `true`: report what would be written, write nothing and ask nothing |
+| `confirm_token` | string | no | Only on the fallback path, where the client cannot show a dialog |
+
+**Asks before writing** (`dry_run: false`, once there are unparsed lines). The
+question names the recipe id, the parser and the threshold, and is bound to the
+lines, the parser, the threshold and the overrides — a token cannot be spent on
+a different choice.
 
 ### duplicate_recipe
 
@@ -357,8 +388,8 @@ unit. **Asks a person first.** As with `merge_foods`, the token is bound to the 
 
 Splits free-text ingredient lines into quantity, unit, food and note, and
 reports how confident Mealie is about each part. Nothing is saved. Use it to
-check how a line will be understood before writing it to a recipe or a shopping
-list.
+check how a line will be understood before writing it to a shopping list; to
+structure the lines of a recipe, use `parse_recipe_ingredients`.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
