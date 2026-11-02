@@ -21,9 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # The two current LTS lines as of 2026-08-18. Node 26 exists but is a
-        # current release, not LTS.
-        node-version: [22, 24, 26]
+        # The two current LTS lines as of 2026-11-02: 26 (Lithium) is the active
+        # LTS, 24 (Krypton) the maintenance LTS.
+        node-version: [24, 26]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
