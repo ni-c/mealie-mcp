@@ -61,7 +61,7 @@ webhooks and no outbound-HTTP triggers, whatever the token would allow.
 
 ## Requirements
 
-- Node.js 22 or newer
+- Node.js 24 or newer
 - A Mealie instance and an API token from **Settings → API Tokens**
 
 ## Configuration

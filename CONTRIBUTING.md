@@ -14,7 +14,7 @@ npm run build
 ## Expectations
 
 - **Tests.** Behaviour changes come with a test that fails without the change. CI
-  runs lint, build and tests on Node 22 and 24, the integration suite against a
+  runs lint, build and tests on Node 24 and 26, the integration suite against a
   real Mealie, plus `npm audit`, CodeQL with the `security-and-quality` query
   pack, and a Trivy scan of the container image on amd64 and arm64.
 - **Comments** explain constraints the code cannot show — not what the next line
