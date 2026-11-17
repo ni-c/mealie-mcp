@@ -23,6 +23,20 @@ const REQUEST_TIMEOUT_MS = 15_000;
  */
 export const LONG_TIMEOUT_MS = 60_000;
 
+/** Methods a second attempt cannot repeat a side effect of (RFC 9110 9.2.2). */
+const IDEMPOTENT = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS']);
+
+const STALE_SOCKET_CODES = new Set(['UND_ERR_SOCKET', 'ECONNRESET']);
+
+/** A pooled connection the server had already closed, failing before any response. */
+export function isStaleConnection(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  const cause: unknown = error.cause;
+  if (typeof cause !== 'object' || cause === null) return false;
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === 'string' && STALE_SOCKET_CODES.has(code);
+}
+
 /**
  * Hard cap on how much of a response body is read into memory.
  *
@@ -242,12 +256,22 @@ export class MealieApi {
     const url = `${this.baseUrl}${path}`;
     // The insecure dispatcher requires undici's own fetch; the default path uses
     // the (stubbable) global fetch so tests can intercept it.
-    const response = this.insecureDispatcher
-      ? await undiciFetch(url, {
-          ...init,
-          dispatcher: this.insecureDispatcher,
-        } as UndiciRequestInit)
-      : await fetch(url, init);
+    const send = async () =>
+      this.insecureDispatcher
+        ? await undiciFetch(url, {
+            ...init,
+            dispatcher: this.insecureDispatcher,
+          } as UndiciRequestInit)
+        : await fetch(url, init);
+    let response: Awaited<ReturnType<typeof send>>;
+    try {
+      response = await send();
+    } catch (error) {
+      if (!IDEMPOTENT.has(method.toUpperCase()) || !isStaleConnection(error)) {
+        throw error;
+      }
+      response = await send();
+    }
 
     // The status first, then the body under a ceiling that fits the status:
     // an error body is a hint and is cut, a success body is the answer and is

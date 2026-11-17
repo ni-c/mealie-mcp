@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Require Node.js 24 or newer. CI tests the latest 24 and 26 LTS releases; Node 22 is no longer supported.
 
+### Fixed
+
+- A request no longer fails with `fetch failed` when Mealie has closed the
+  connection it was about to reuse. Mealie 3.31 closes a connection after some
+  error responses without saying so, and the next request sent on it died
+  before reaching Mealie — in the weekly integration run, a `delete_organizer`
+  right after a failed URL import, in three of eleven local runs. `GET`, `HEAD`,
+  `PUT`, `DELETE` and `OPTIONS` are now sent once more on a fresh connection
+  when that happens; `POST` and `PATCH` are not, because they may already have
+  taken effect.
+
 ## [0.6.0] - 2026-10-07
 
 ### Added
