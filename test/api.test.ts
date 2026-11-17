@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertPathSegment,
+  isStaleConnection,
   MealieApi,
   MealieApiError,
   query,
@@ -382,5 +383,116 @@ describe('readErrorText on a stub without a stream', () => {
     );
     expect(error).toBeInstanceOf(MealieApiError);
     expect((error as MealieApiError).body.length).toBe(64 * 1024);
+  });
+});
+
+function fetchFailed(cause?: unknown): TypeError {
+  return new TypeError('fetch failed', cause === undefined ? {} : { cause });
+}
+
+const closed = () =>
+  fetchFailed(
+    Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
+  );
+
+function failThenRespond(...failures: unknown[]) {
+  const queue = [...failures];
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    const next = queue.shift();
+    if (next !== undefined) throw next;
+    return jsonResponse({ ok: true });
+  });
+}
+
+describe('isStaleConnection', () => {
+  it('recognises a socket closed by the other side and a reset', () => {
+    expect(isStaleConnection(closed())).toBe(true);
+    expect(isStaleConnection(fetchFailed({ code: 'ECONNRESET' }))).toBe(true);
+  });
+
+  it('rejects every other failure', () => {
+    for (const error of [
+      fetchFailed({ code: 'ENOTFOUND' }),
+      fetchFailed({ code: 'ECONNREFUSED' }),
+      fetchFailed(),
+      fetchFailed(null),
+      fetchFailed('UND_ERR_SOCKET'),
+      fetchFailed({ code: 42 }),
+      fetchFailed({}),
+      Object.assign(new Error('fetch failed'), {
+        cause: { code: 'UND_ERR_SOCKET' },
+      }),
+      new DOMException('timed out', 'TimeoutError'),
+      undefined,
+      null,
+      'UND_ERR_SOCKET',
+    ]) {
+      expect(isStaleConnection(error)).toBe(false);
+    }
+  });
+});
+
+describe('a request on a connection the server already closed', () => {
+  it.each(['GET', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'delete'])(
+    'is sent once more for the idempotent %s',
+    async (method) => {
+      const spy = failThenRespond(closed());
+      await expect(
+        new MealieApi(config).request(method, '/api/organizers/tags/x')
+      ).resolves.toEqual({ ok: true });
+      expect(spy).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each(['POST', 'PATCH'])(
+    'is not repeated for %s, which may already have taken effect',
+    async (method) => {
+      const spy = failThenRespond(closed());
+      await expect(
+        new MealieApi(config).request(method, '/api/recipes', {})
+      ).rejects.toThrow('fetch failed');
+      expect(spy).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('is repeated only once', async () => {
+    const spy = failThenRespond(closed(), closed());
+    await expect(new MealieApi(config).delete('/api/x')).rejects.toThrow(
+      'fetch failed'
+    );
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('resends the same body', async () => {
+    const spy = failThenRespond(closed());
+    await new MealieApi(config).put('/api/x', { name: 'Quark' });
+    expect(
+      spy.mock.calls.map(([, init]) => (init as RequestInit).body)
+    ).toEqual(['{"name":"Quark"}', '{"name":"Quark"}']);
+  });
+
+  it('passes an error status from the second attempt on as it is', async () => {
+    const queue: unknown[] = [closed()];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      const next = queue.shift();
+      if (next !== undefined) throw next;
+      return jsonResponse({ detail: 'gone' }, 404);
+    });
+    await expect(new MealieApi(config).delete('/api/x')).rejects.toBeInstanceOf(
+      MealieApiError
+    );
+  });
+
+  it('leaves other failures alone', async () => {
+    for (const failure of [
+      fetchFailed({ code: 'ENOTFOUND' }),
+      fetchFailed(),
+      new DOMException('timed out', 'TimeoutError'),
+    ]) {
+      const spy = failThenRespond(failure);
+      await expect(new MealieApi(config).get('/api/x')).rejects.toBe(failure);
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    }
   });
 });
